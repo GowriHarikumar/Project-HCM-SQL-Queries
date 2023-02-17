@@ -1,0 +1,548 @@
+========================================== DS 1 (LSA_DM) =========================================
+
+---Leave Salary Report-----100498 ELEMENT---LSA DM--TEST INSTANCE---
+SELECT DISTINCT
+    papf.person_number   emp_no,
+    paaf.assignment_id-------------------300000005605832
+    ,
+    initcap(ppnf.title)
+    || ''
+    || ppnf.display_name name,
+    hp.name              designation,
+    pd.name              department,
+    TO_CHAR(pps.date_start, 'DD-MM-YYYY') date_of_joining,
+    pba.bank_name,
+    pba.bank_account_num,
+    pba.iban_number,
+    MAX(cmp.salary_amount) salary_total,
+    MIN(TO_CHAR(apae.start_date, 'DD-MM-YYYY')) leave_start_date,
+    MAX(TO_CHAR(apae.end_date, 'DD-MM-YYYY')) leave_end_date,
+    apae.duration        no_of_days_approved,
+    ( TO_CHAR(ptp.cut_off_date, 'Mon', 'NLS_DATE_LANGUAGE=AMERICAN')
+      || ' '
+      || ( TO_CHAR(ptp.cut_off_date, 'YYYY') ) ) curr_month,
+    pet.element_name,
+    TO_CHAR(last_day(ptp.cut_off_date), 'DD') days,
+    (
+        CASE
+            WHEN apae.start_date BETWEEN ptp.start_date AND ptp.end_date THEN
+                ( ( to_number(TO_CHAR(last_day(ptp.cut_off_date), 'DD')) ) - ( ptp.end_date - apae.start_date ) )
+            WHEN apae.end_date BETWEEN ptp.start_date AND ptp.end_date THEN
+                ( ( to_number(TO_CHAR(last_day(ptp.cut_off_date), 'DD')) ) - ( to_number(ptp.end_date) - ( to_number(apae.end_date
+                - apae.start_date) ) ) )
+            ELSE
+                ( to_number(TO_CHAR(last_day(ptp.cut_off_date), 'DD')) )
+        END
+    ) actual_no_of_days,
+    apae.duration        annual_leave,
+    prrv.result_value    leave_pay,
+    hou.name             bu,
+    piv.base_name,
+    hle.name             le,
+    ptp.end_date,
+    ptp.start_date
+-- ,LE_ADDRESS.POSTAL_CODE || ',' || LE_ADDRESS.ADDRESS1 || ',' || LE_ADDRESS.ADDRESS2 || ',' || LE_ADDRESS.CITY || ',' || LE_ADDRESS.TERRITORY_SHORT_NAME ADDRESS
+    ,
+    le_address.address1
+    || ','
+    || le_address.address2
+    || ','
+    || le_address.city
+    || ','
+    || le_address.territory_short_name address,
+    paaf.legal_entity_id
+FROM
+    per_all_people_f                 papf,
+    per_all_assignments_f            paaf,
+    per_person_names_f               ppnf,
+    per_periods_of_service           pps,
+    per_departments                  pd,
+    hr_all_organization_units        hou,
+    hr_legal_entities                hle,
+    hr_all_positions                 hp,
+    pay_pay_relationships_dn         ppr,
+    pay_personal_payment_methods_f   pppm,
+    pay_bank_accounts                pba,
+    cmp_salary                       cmp,
+    anc_per_abs_entries              apae,
+    anc_absence_types_f_tl           aat,
+    pay_payroll_actions              ppa,
+    pay_time_periods                 ptp,
+    pay_all_payrolls_f               pay,
+    pay_payroll_assignments          ppas,
+    pay_payroll_rel_actions          ppra,
+    pay_ele_classifications_vl       pec,
+    pay_element_types_vl             pet,
+    pay_run_result_values            prrv,
+    pay_run_results                  prr,
+    pay_input_values_f               piv
+	 
+	 -- ,PER_ADDRESSES PA 
+    ,
+    (
+        SELECT
+            xep.organization_id,
+            hl.postal_code,
+            hl.address1,
+            hl.address2,
+            hl.city,
+            hl.state,
+            ftv.territory_short_name
+        FROM
+            xle_registrations     xr,
+            hz_locations          hl,
+            per_legal_employers   xep,
+            fnd_territories_vl    ftv
+        WHERE
+            1 = 1
+            AND xep.legal_entity_id = xr.source_id
+            AND xr.location_id = hl.location_id
+            AND hl.country = ftv.territory_code
+    ) le_address
+WHERE
+    1 = 1
+-------------PERSON TABLE LINKS---------------------
+-- AND PAPF.PERSON_NUMBER = '100498'
+    AND papf.person_id = paaf.person_id
+    AND papf.person_id = ppnf.person_id
+    AND ppnf.name_type = 'GLOBAL'
+    AND papf.person_id = pps.person_id
+    AND paaf.organization_id = pd.organization_id (+)
+    AND paaf.business_unit_id = hou.organization_id
+    AND paaf.position_id = hp.position_id (+)
+    AND paaf.legal_entity_id = hle.organization_id (+)
+    AND hle.status = 'A'
+    AND hle.classification_code = 'HCM_LEMP'
+    AND paaf.legal_entity_id = le_address.organization_id (+)
+
+-- ------------SALARY AND BANK DETAILS TABLE LINKS-----------------------
+    AND papf.person_id = ppr.person_id (+)
+    AND ppr.payroll_relationship_id = pppm.payroll_relationship_id (+)
+    AND pppm.bank_account_id = pba.bank_account_id (+)
+    AND paaf.assignment_id = cmp.assignment_id
+
+-- -----------ABSENCE TABLE LINKS-----------------------
+    AND papf.person_id = apae.person_id
+    AND apae.absence_type_id = aat.absence_type_id
+    AND aat.name = 'Annual Vacation'
+    AND apae.absence_status_cd != 'ORA_WITHDRAWN'
+
+-- -------------PAYROLL TABLE LINKS--------------------------
+    AND paaf.assignment_id = ppas.hr_assignment_id
+    AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+    AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+    AND ppra.action_status = 'C'
+    AND ppra.run_type_id IS NOT NULL
+    AND ppra.payroll_action_id = ppa.payroll_action_id
+    AND ppa.action_type IN (
+        'R',
+        'Q'
+    )
+    AND ppa.action_status = 'C'
+    AND ppa.payroll_id = ptp.payroll_id
+    AND ptp.period_category = 'E'
+    AND ptp.status = 'O'
+-- And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+-- And ((PTP.PERIOD_NAME in (:P_PAYROLL_PERIOD)) Or (Least(:P_PAYROLL_PERIOD) IS NULL))
+    AND ( ( ptp.time_period_id IN (
+        :p_payroll_period
+    ) )
+          OR ( least(:p_payroll_period) IS NULL ) )
+    AND pay.payroll_id = :p_payroll
+-- And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+    AND ptp.payroll_id = pay.payroll_id
+    AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+    AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+
+-----------ELEMENT DETAILS TABLE LINKS----------
+    AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+    AND pet.classification_id = pec.classification_id
+    AND pet.element_name = 'Leave Salary Advance'
+    AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+    AND pet.element_type_id = prr.element_type_id
+    AND prr.run_result_id = prrv.run_result_id
+    AND prrv.input_value_id = piv.input_value_id
+    AND piv.base_name = 'Pay Value'
+
+----------PARAMETERS-------------
+    AND hle.name = nvl(:p_legal_employer, hle.name)
+    AND hou.name = nvl(:p_business_unit, hou.name)
+    AND pd.name = nvl(:p_department, pd.name)
+    AND trunc(SYSDATE) BETWEEN nvl(hp.effective_start_date, SYSDATE - 1) AND nvl(hp.effective_end_date, SYSDATE + 1)
+    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+    AND trunc(SYSDATE) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+    AND trunc(SYSDATE) BETWEEN hle.effective_start_date AND hle.effective_end_date
+    AND trunc(SYSDATE) BETWEEN nvl(pppm.effective_start_date, SYSDATE - 1) AND nvl(pppm.effective_end_date, SYSDATE + 1)
+    AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+GROUP BY
+    papf.person_number,
+    paaf.assignment_id,
+    initcap(ppnf.title)
+    || ''
+    || ppnf.display_name,
+    hp.name,
+    pd.name,
+    pps.date_start,
+    pba.bank_name,
+    pba.bank_account_num,
+    pba.iban_number,
+    apae.duration,
+    ptp.cut_off_date,
+    pet.element_name,
+    ptp.cut_off_date,
+    apae.start_date,
+    apae.end_date,
+    apae.duration,
+    prrv.result_value,
+    hou.name,
+    piv.base_name,
+    hle.name,
+    ptp.end_date,
+    ptp.start_date,
+    le_address.address1
+    || ','
+    || le_address.address2
+    || ','
+    || le_address.city
+    || ','
+    || le_address.territory_short_name,
+    paaf.legal_entity_id
+ORDER BY
+    papf.person_number ASC
+    
+    ============================================== DS 2 (SAL_COMP) =====================================
+    
+    SELECT
+    paaf.assignment_id,
+    cas.component_name,
+    cas.rate_amount
+FROM
+    cmp_salary                      cmp,
+    cmp_asg_salary_simple_cmpts_v   cas,
+    per_all_assignments_f           paaf,
+    per_all_people_f                papf
+WHERE
+    cmp.person_id = papf.person_id
+    AND cmp.assignment_id = paaf.assignment_id
+    AND cmp.salary_id = cas.salary_id
+    AND papf.person_id = paaf.person_id
+    AND nvl(cas.rate_amount, 0) != 0
+    AND cas.component_name != 'Overall salary'
+    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+			-- AND ROWNUM = 1
+      
+      ================================================= DS 3 (EARNINGS) ============================================
+      ------LS_DM_EARNINGS-----SEQ------
+SELECT
+    1 sr_no,
+    paaf.assignment_id,
+    pet.element_name    earn_element_name,
+    prrv.result_value   earn_pay_value
+-- ,PTP.PERIOD_NAME
+-- ,PPA.DISPLAY_RUN_NUMBER
+-- ,PPA.ACTION_SEQUENCE
+-- ,PRR.SEQUENCE_NUMBER
+FROM
+    per_all_people_f             papf,
+    per_all_assignments_f        paaf,
+    pay_payroll_assignments      ppas,
+    pay_payroll_rel_actions      ppra,
+    pay_payroll_actions          ppa,
+    pay_time_periods             ptp,
+    pay_all_payrolls_f           pay,
+    pay_element_types_vl         pet,
+    pay_run_result_values        prrv,
+    pay_run_results              prr,
+    pay_input_values_f           piv,
+    pay_ele_classifications_vl   pec
+WHERE
+    1 = 1
+-- and PAAF.ASSIGNMENT_ID = '300000005605832'
+ -------------PAYROLL TABLE LINKS--------------------------
+    AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+    AND papf.person_id = paaf.person_id
+-- And PAPF.PERSON_NUMBER = '100498'
+    AND trunc(SYSDATE) BETWEEN trunc(paaf.effective_start_date) AND trunc(paaf.effective_end_date)
+    AND paaf.assignment_type IN (
+        'E',
+        'P'
+    )
+    AND paaf.assignment_id = ppas.hr_assignment_id
+    AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+    AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+    AND ppra.action_status = 'C'
+    AND ppra.run_type_id IS NOT NULL
+    AND ppra.payroll_action_id = ppa.payroll_action_id
+    AND ppa.action_type IN (
+        'R',
+        'Q'
+    )
+    AND ppa.action_status = 'C'
+    AND ppa.payroll_id = ptp.payroll_id
+    AND ptp.period_category = 'E'
+    AND ptp.status = 'O'
+    AND ( ( ptp.time_period_id IN (
+        :p_payroll_period
+    ) )
+          OR ( least(:p_payroll_period) IS NULL ) )
+    AND pay.payroll_id = :p_payroll
+-- And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+-- And ((PTP.PERIOD_NAME in (:P_PAYROLL_PERIOD)) Or (Least(:P_PAYROLL_PERIOD) IS NULL))
+-- And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+    AND ptp.payroll_id = pay.payroll_id
+    AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+    AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+
+-----------ELEMENT DETAILS TABLE LINKS----------
+    AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+    AND pet.classification_id = pec.classification_id
+    AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+    AND pec.base_classification_name IN (
+        'Standard Earnings',
+        'Supplemental Earnings'
+    )
+    AND pet.element_name != 'Leave Salary Advance'
+    AND pet.element_type_id = prr.element_type_id
+    AND prr.run_result_id = prrv.run_result_id
+    AND prrv.input_value_id = piv.input_value_id
+    AND piv.base_name = 'Pay Value'
+    AND pet.element_name IN (
+        'Basic Salary'
+    )
+-- ORDER BY PPA.DISPLAY_RUN_NUMBER ASC
+UNION ALL
+SELECT
+    2 sr_no,
+    paaf.assignment_id,
+    pet.element_name    earn_element_name,
+    prrv.result_value   earn_pay_value
+
+-- ,PPA.DISPLAY_RUN_NUMBER
+-- ,PPA.ACTION_SEQUENCE
+-- ,PRR.SEQUENCE_NUMBER
+FROM
+    per_all_people_f             papf,
+    per_all_assignments_f        paaf,
+    pay_payroll_assignments      ppas,
+    pay_payroll_rel_actions      ppra,
+    pay_payroll_actions          ppa,
+    pay_time_periods             ptp,
+    pay_all_payrolls_f           pay,
+    pay_element_types_vl         pet,
+    pay_run_result_values        prrv,
+    pay_run_results              prr,
+    pay_input_values_f           piv,
+    pay_ele_classifications_vl   pec
+WHERE
+    1 = 1
+-- and PAAF.ASSIGNMENT_ID = '300000005605832'
+ -------------PAYROLL TABLE LINKS--------------------------
+    AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+    AND papf.person_id = paaf.person_id
+-- And PAPF.PERSON_NUMBER = '100498'
+    AND trunc(SYSDATE) BETWEEN trunc(paaf.effective_start_date) AND trunc(paaf.effective_end_date)
+    AND paaf.assignment_type IN (
+        'E',
+        'P'
+    )
+    AND paaf.assignment_id = ppas.hr_assignment_id
+    AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+    AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+    AND ppra.action_status = 'C'
+    AND ppra.run_type_id IS NOT NULL
+    AND ppra.payroll_action_id = ppa.payroll_action_id
+    AND ppa.action_type IN (
+        'R',
+        'Q'
+    )
+    AND ppa.action_status = 'C'
+    AND ppa.payroll_id = ptp.payroll_id
+    AND ptp.period_category = 'E'
+    AND ptp.status = 'O'
+-- And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+-- And ((PTP.PERIOD_NAME in (:P_PAYROLL_PERIOD)) Or (Least(:P_PAYROLL_PERIOD) IS NULL))
+-- And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+    AND ( ( ptp.time_period_id IN (
+        :p_payroll_period
+    ) )
+          OR ( least(:p_payroll_period) IS NULL ) )
+    AND pay.payroll_id = :p_payroll
+    AND ptp.payroll_id = pay.payroll_id
+    AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+    AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+
+-----------ELEMENT DETAILS TABLE LINKS----------
+    AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+    AND pet.classification_id = pec.classification_id
+    AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+    AND pec.base_classification_name IN (
+        'Standard Earnings',
+        'Supplemental Earnings'
+    )
+    AND pet.element_name != 'Leave Salary Advance'
+    AND pet.element_type_id = prr.element_type_id
+    AND prr.run_result_id = prrv.run_result_id
+    AND prrv.input_value_id = piv.input_value_id
+    AND piv.base_name = 'Pay Value'
+    AND pet.element_name IN (
+        'Housing Rent Allowance'
+    )
+UNION ALL
+SELECT
+    3 sr_no,
+    paaf.assignment_id,
+    pet.element_name    earn_element_name,
+    prrv.result_value   earn_pay_value
+
+-- ,PPA.DISPLAY_RUN_NUMBER
+-- ,PPA.ACTION_SEQUENCE
+-- ,PRR.SEQUENCE_NUMBER
+FROM
+    per_all_people_f             papf,
+    per_all_assignments_f        paaf,
+    pay_payroll_assignments      ppas,
+    pay_payroll_rel_actions      ppra,
+    pay_payroll_actions          ppa,
+    pay_time_periods             ptp,
+    pay_all_payrolls_f           pay,
+    pay_element_types_vl         pet,
+    pay_run_result_values        prrv,
+    pay_run_results              prr,
+    pay_input_values_f           piv,
+    pay_ele_classifications_vl   pec
+WHERE
+    1 = 1
+-- and PAAF.ASSIGNMENT_ID = '300000005605832'
+ -------------PAYROLL TABLE LINKS--------------------------
+    AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+    AND papf.person_id = paaf.person_id
+-- And PAPF.PERSON_NUMBER = '100498'
+    AND trunc(SYSDATE) BETWEEN trunc(paaf.effective_start_date) AND trunc(paaf.effective_end_date)
+    AND paaf.assignment_type IN (
+        'E',
+        'P'
+    )
+    AND paaf.assignment_id = ppas.hr_assignment_id
+    AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+    AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+    AND ppra.action_status = 'C'
+    AND ppra.run_type_id IS NOT NULL
+    AND ppra.payroll_action_id = ppa.payroll_action_id
+    AND ppa.action_type IN (
+        'R',
+        'Q'
+    )
+    AND ppa.action_status = 'C'
+    AND ppa.payroll_id = ptp.payroll_id
+    AND ptp.period_category = 'E'
+    AND ptp.status = 'O'
+-- And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+-- And ((PTP.PERIOD_NAME in (:P_PAYROLL_PERIOD)) Or (Least(:P_PAYROLL_PERIOD) IS NULL))
+-- And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+    AND ( ( ptp.time_period_id IN (
+        :p_payroll_period
+    ) )
+          OR ( least(:p_payroll_period) IS NULL ) )
+    AND pay.payroll_id = :p_payroll
+    AND ptp.payroll_id = pay.payroll_id
+    AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+    AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+
+-----------ELEMENT DETAILS TABLE LINKS----------
+    AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+    AND pet.classification_id = pec.classification_id
+    AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+    AND pec.base_classification_name IN (
+        'Standard Earnings',
+        'Supplemental Earnings'
+    )
+    AND pet.element_name != 'Leave Salary Advance'
+    AND pet.element_type_id = prr.element_type_id
+    AND prr.run_result_id = prrv.run_result_id
+    AND prrv.input_value_id = piv.input_value_id
+    AND piv.base_name = 'Pay Value'
+    AND pet.element_name NOT IN (
+        'Basic Salary',
+        'Housing Rent Allowance'
+    )
+ORDER BY
+    sr_no ASC
+    
+    ======================================================= DS 4 (DEDUCTIONS) ===========================================
+    
+    ------LS_DM_DEDUCTIONS-----------
+SELECT
+    paaf.assignment_id,
+    pet.element_name    ded_element_name,
+    prrv.result_value   ded_pay_value,
+    prr.sequence_number
+FROM
+    per_all_people_f             papf,
+    per_all_assignments_f        paaf,
+    pay_payroll_assignments      ppas,
+    pay_payroll_rel_actions      ppra,
+    pay_payroll_actions          ppa,
+    pay_time_periods             ptp,
+    pay_all_payrolls_f           pay,
+    pay_element_types_vl         pet,
+    pay_run_result_values        prrv,
+    pay_run_results              prr,
+    pay_input_values_f           piv,
+    pay_ele_classifications_vl   pec
+WHERE
+    1 = 1
+ -------------PAYROLL TABLE LINKS--------------------------
+    AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+    AND papf.person_id = paaf.person_id
+-- And PAPF.PERSON_NUMBER = '100498'
+    AND trunc(SYSDATE) BETWEEN trunc(paaf.effective_start_date) AND trunc(paaf.effective_end_date)
+    AND paaf.assignment_type IN (
+        'E',
+        'P'
+    )
+    AND paaf.assignment_id = ppas.hr_assignment_id
+    AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+    AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+    AND ppra.action_status = 'C'
+    AND ppra.run_type_id IS NOT NULL
+    AND ppra.payroll_action_id = ppa.payroll_action_id
+    AND ppa.action_type IN (
+        'R',
+        'Q'
+    )
+    AND ppa.action_status = 'C'
+    AND ppa.payroll_id = ptp.payroll_id
+    AND ptp.period_category = 'E'
+    AND ptp.status = 'O'
+-- And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+-- And ((PTP.PERIOD_NAME in (:P_PAYROLL_PERIOD)) Or (Least(:P_PAYROLL_PERIOD) IS NULL))
+-- And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+    AND ( ( ptp.time_period_id IN (
+        :p_payroll_period
+    ) )
+          OR ( least(:p_payroll_period) IS NULL ) )
+    AND pay.payroll_id = :p_payroll
+    AND ptp.payroll_id = pay.payroll_id
+    AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+    AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+
+-----------ELEMENT DETAILS TABLE LINKS----------
+    AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+    AND pet.classification_id = pec.classification_id
+    AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+    AND pec.base_classification_name IN (
+        'Involuntary Deductions',
+        'Voluntary Deductions',
+        'Social Insurance Deductions'
+    )
+    AND pet.element_type_id = prr.element_type_id
+    AND prr.run_result_id = prrv.run_result_id
+    AND prrv.input_value_id = piv.input_value_id
+    AND piv.base_name = 'Pay Value'
