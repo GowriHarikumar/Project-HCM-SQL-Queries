@@ -1,0 +1,145 @@
+SELECT
+    *
+FROM
+    (
+        SELECT
+            hou.name                  legal_entity_code,
+            houb.name                 business_unit_code,
+            hous.name                 department_code,
+            pldft.location_name       location_code,
+            papf.person_number,
+            ppnf.display_name,
+            TO_CHAR(ppos.date_start, 'DD-MON-YYYY', 'nls_date_language = english') doj,
+            TO_CHAR(ppos.actual_termination_date, 'DD-MON-YYYY', 'nls_date_language = english') dol,
+            ppnf1.display_name        supervisor,
+            (
+                SELECT
+                    meaning
+                FROM
+                    hr_lookups hrl
+                WHERE
+                    lookup_type = 'CHECKLIST_CATEGORY'
+                    AND hrl.lookup_code = pac.checklist_category
+            ) checklist_category_meaning,
+            pact.checklist_name,
+            patt.task_name,
+            DECODE(pat.mandatory_flag, 'Y', 'Required', 'N', 'Optional', pat.mandatory_flag) mandatory_flag,
+            nvl((
+                SELECT
+                    meaning
+                FROM
+                    hr_lookups hrl
+                WHERE
+                    lookup_type = 'ORA_PER_CHECKLIST_PERFORMERS'
+                    AND hrl.lookup_code = pat.responsibility_type
+            ),(
+                SELECT
+                    meaning
+                FROM
+                    hr_lookups hrl
+                WHERE
+                    lookup_type = 'PER_RESPONSIBILITY_TYPES'
+                    AND hrl.lookup_code = pat.responsibility_type
+            )) performer_type,
+            perf_papf.person_number   task_performer,
+            pern_papf.display_name    task_perfomer_name,
+            papfem.email_address      performer_email,
+            TO_CHAR(TO_DATE(substr(pac.allocation_date, 1, 10), 'YYYY-MM-DD'), 'DD-MON-YYYY', 'nls_date_language = english') allocation_date
+--to_char(to_date(substr(A.DEI_ATTRIBUTE_DATE1,1,10),'YYYY-MM-DD'),'DD-MON-YYYY' ,'nls_date_language = english') Planner_Start_Date,
+            ,
+            (
+                SELECT
+                    meaning
+                FROM
+                    hr_lookups hrl
+                WHERE
+                    lookup_type = 'PER_CHECKLIST_TASK_STATUS'
+                    AND hrl.lookup_code = pat.status
+            ) checklist_task_status,
+            nvl((
+                CASE
+                    WHEN pac.allocation_date < SYSDATE
+                         AND pat.status IN(
+                        'INP', 'INI'
+                    ) THEN
+                        round(SYSDATE - pac.allocation_date)
+                    ELSE
+                        NULL
+                END
+            ), 0) delay_days
+        FROM
+            per_all_people_f               papf,
+            per_periods_of_service         ppos,
+            per_person_names_f             ppnf,
+            per_all_assignments_m          paam,
+            hr_organization_units          hou,
+            hr_organization_units          houb,
+            hr_organization_units          hous,
+            per_location_details_f         pldf,
+            per_location_details_f_tl      pldft,
+            per_assignment_supervisors_f   pasf,
+            per_person_names_f             ppnf1,
+            per_allocated_checklists       pac,
+            per_allocated_checklists_tl    pact,
+            per_allocated_tasks            pat,
+            per_allocated_tasks_tl         patt,
+            per_all_people_f               perf_papf,
+            per_person_names_f             pern_papf,
+            per_email_addresses            papfem
+        WHERE
+            papf.person_id = paam.person_id
+--AND papf.person_number = '209637'
+            AND paam.period_of_service_id = ppos.period_of_service_id
+            AND ppnf.person_id = papf.person_id
+            AND papfem.person_id = perf_papf.person_id
+            AND papfem.email_type = 'W1'
+            AND ppnf.name_type = 'GLOBAL'
+            AND paam.primary_flag = 'Y'
+--AND paam.assignment_status_type = 'ACTIVE'
+            AND pasf.person_id = papf.person_id
+            AND pasf.assignment_id = paam.assignment_id
+            AND pasf.manager_id = ppnf1.person_id
+--AND TRUNC (SYSDATE) between pasf.effective_start_date AND pasf.effective_end_date
+            AND trunc(SYSDATE) BETWEEN ppnf1.effective_start_date AND ppnf1.effective_end_date
+            AND ppnf1.name_type = 'GLOBAL'
+            AND pasf.manager_type = 'LINE_MANAGER'
+            AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(ppnf.effective_start_date) AND trunc(ppnf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+            AND ppos.person_id = papf.person_id
+            AND ppos.primary_flag = 'Y'
+            AND ppos.legal_entity_id = hou.organization_id
+            AND paam.business_unit_id = houb.organization_id
+            AND paam.organization_id = hous.organization_id
+            AND paam.location_id = pldf.location_id
+            AND pldf.location_details_id = pldft.location_details_id
+            AND pldft.language = 'US'
+            AND trunc(SYSDATE) BETWEEN trunc(pldf.effective_start_date) AND trunc(pldf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(pldft.effective_start_date) AND trunc(pldft.effective_end_date)
+            AND pac.assignment_id = paam.assignment_id
+            AND pac.allocated_checklist_id = pact.allocated_checklist_id
+            AND pact.language = 'US'
+            AND pac.allocated_checklist_id = pat.allocated_checklist_id
+            AND pat.allocated_task_id = patt.allocated_task_id
+            AND patt.language = 'US'
+            AND pat.performer_orig_sys_id = perf_papf.person_id
+--AND perf_ppnf.name_type = 'GLOBAL'
+            AND trunc(SYSDATE) BETWEEN perf_papf.effective_start_date AND perf_papf.effective_end_date
+            AND perf_papf.person_id = pern_papf.person_id
+            AND pern_papf.name_type = 'GLOBAL'
+            AND trunc(SYSDATE) BETWEEN trunc(pern_papf.effective_start_date) AND trunc(pern_papf.effective_end_date)
+    )
+WHERE
+    1 = 1
+    AND legal_entity_code = nvl(:p_legal_employee, legal_entity_code)
+    AND business_unit_code = nvl(:p_business_unit, business_unit_code)
+    AND department_code = nvl(:p_department, department_code)
+    AND location_code = nvl(:p_location, location_code)
+    AND person_number = nvl(:p_employee_num, person_number)
+    AND display_name = nvl(:p_employee_name, display_name)
+    AND checklist_category_meaning = nvl(:p_category_type, checklist_category_meaning)
+    AND checklist_task_status = nvl(:p_status, checklist_task_status)
+    AND task_performer = nvl(:p_perf_num, task_performer)
+--AND Trunc(To_Date(allocation_date,'DD-MON-YYYY')) BETWEEN NVL(:P_ALLOCATION_START, Trunc(To_Date(allocation_date,'DD-MON-YYYY'))) AND NVL(:P_ALLOCATION_END, Trunc(To_Date(allocation_date,'DD-MON-YYYY')))
+ORDER BY
+    person_number
