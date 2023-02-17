@@ -1,0 +1,372 @@
+============================= DS 1 (SALARY_REVISION) =================================
+SELECT
+    business_unit,
+    employee_number,
+    employee_name,
+    previous_designation,
+    designation,
+    department,
+    previous_basic_salary,
+    previous_hra,
+    previous_air_ticket,
+    current_basic_salary,
+    current_hra,
+    current_air_ticket,
+    variance_basic_salary,
+    variance_hra,
+    variance_air_ticket,
+    round((((total_overall_salary - total_previous_salary) / total_previous_salary) * 100), 3) "INCREMENT",
+    TO_CHAR(effective_date, 'DD-MON-YYYY', 'nls_date_language = english') effective_date
+FROM
+    (
+        SELECT
+            hou.name             business_unit,
+            papf.person_number   employee_number,
+            ppnf.display_name    employee_name,
+            (
+                SELECT
+                    *
+                FROM
+                    (
+                        SELECT
+                            hap1.name
+                        FROM
+                            hr_all_positions        hap1,
+                            per_all_assignments_m   paam1
+                        WHERE
+                            paam1.position_id = hap1.position_id (+)
+                            AND paam1.person_id = papf.person_id
+                            AND hap1.active_status = 'A'
+                            AND paam1.primary_flag = 'Y'
+                            AND trunc(paam1.effective_end_date) < trunc(SYSDATE)
+                        ORDER BY
+                            paam1.effective_end_date DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) previous_designation,
+            hap.name             designation,
+            haou.name            department,
+            (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ORA_BASIC'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) previous_basic_salary,
+            (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ORA_HOUSING_ALLOWANCE'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) previous_hra,
+            (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ASH_AIR_TICKET'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) previous_air_ticket,
+            (
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs,
+                    cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_BASIC'
+            ) current_basic_salary,
+            (
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs,
+                    cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_HOUSING_ALLOWANCE'
+            ) current_hra,
+            (
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs,
+                    cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ASH_AIR_TICKET'
+            ) current_air_ticket,
+            ( (
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs,
+                    cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_BASIC'
+            ) - (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ORA_BASIC'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) ) variance_basic_salary,
+            ( (
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs,
+                    cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_HOUSING_ALLOWANCE'
+            ) - (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ORA_HOUSING_ALLOWANCE'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) ) variance_hra,
+            ( (
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs,
+                    cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ASH_AIR_TICKET'
+            ) - (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ASH_AIR_TICKET'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) ) variance_air_ticket,
+            (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to > SYSDATE
+                            AND component_code = 'ORA_OVERALL_SALARY'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) total_overall_salary,
+            (
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            cssc.amount amount,
+                            cs.date_to
+                        FROM
+                            cmp_salary                  cs,
+                            cmp_salary_simple_compnts   cssc
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.assignment_id = paam.assignment_id
+                            AND cs.salary_id = cssc.salary_id
+                            AND salary_approved = 'Y'
+                            AND cs.date_to < SYSDATE
+                            AND component_code = 'ORA_OVERALL_SALARY'
+                        ORDER BY
+                            cs.date_to DESC
+                    )
+                WHERE
+                    ROWNUM = 1
+            ) total_previous_salary,
+            (
+                SELECT
+                    date_from
+                FROM
+                    (
+                        SELECT
+                            cs.date_from
+                        FROM
+                            cmp_salary cs
+                        WHERE
+                            cs.person_id = papf.person_id
+                            AND cs.date_from < SYSDATE
+                        ORDER BY
+                            cs.date_from DESC
+                    )
+                WHERE
+                    ROWNUM < 2
+            ) effective_date
+        FROM
+            hr_organization_units_f_tl   hou,
+            per_all_assignments_m        paam,
+            per_all_people_f             papf,
+            per_person_names_f           ppnf,
+            hr_all_positions             hap,
+            hr_all_organization_units    haou,
+            hr_all_organization_units    haou1
+        WHERE
+            papf.person_id = ppnf.person_id
+            AND papf.person_id = paam.person_id
+            AND paam.business_unit_id = hou.organization_id (+)
+            AND paam.primary_flag = 'Y'
+            AND paam.effective_latest_change = 'Y'
+            AND hou.language (+) = 'US'
+            AND trunc(paam.effective_end_date) > trunc(SYSDATE)
+            AND ppnf.name_type = 'GLOBAL'
+            AND paam.position_id = hap.position_id
+            AND hap.active_status = 'A'
+            AND paam.organization_id = haou.organization_id (+)
+            AND haou1.organization_id = paam.legal_entity_id
+            AND haou1.name = nvl(:p_legal_entity, haou1.name)
+            AND hou.name = nvl(:p_business_unit, hou.name)
+            AND haou.name = nvl(:p_department, haou.name)
+        ORDER BY
+            papf.person_number
+    )
+WHERE
+    previous_basic_salary IS NOT NULL
+    AND current_basic_salary IS NOT NULL
+    AND trunc(effective_date) BETWEEN nvl(:p_effective_date_from, trunc(effective_date)) AND nvl(:p_effective_date_to, trunc(effective_date
+    ))
