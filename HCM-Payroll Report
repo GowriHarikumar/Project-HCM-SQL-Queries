@@ -1,0 +1,1634 @@
+================================== DS 1 (Qry) ============================================
+
+WITH emp_v AS (
+    SELECT
+        emp.business_unit,
+        emp.person_id,
+        emp.assignment_id,
+        emp.employee_number,
+        emp.employee_name,
+        emp.designation,
+        emp.division,
+        emp.department,
+        emp.department_costing,
+        emp.hire_date,
+        emp.nationality,
+        DECODE(emp.status, 'ACTIVE', 'Active', 'INACTIVE', 'Resigned', 'SUSPENDED', 'Terminated') status
+    FROM
+        (
+            SELECT
+                haoufb.name                   business_unit,
+                papf.person_id,
+                paam.assignment_id,
+                papf.person_number            employee_number,
+                ppnf.display_name             employee_name,
+                hap.name                      designation,
+                (
+                    SELECT
+                        haouf.name
+                    FROM
+                        hr_org_unit_classifications_f   houcf,
+                        hr_all_organization_units_vl    haouf
+                    WHERE
+                        1 = 1
+                        AND haouf.organization_id = (
+                            SELECT
+                                organization_id
+                            FROM
+                                per_org_tree_node_v
+                            WHERE
+                                tree_structure_code = 'PER_ORG_TREE_STRUCTURE'
+                                AND tree_code = 'ALS_ORGANIZATION_TREE'
+                                AND depth = 1
+                                AND organization_id = (
+                                    SELECT
+                                        parent_organization_id
+                                    FROM
+                                        per_org_tree_node_v
+                                    WHERE
+                                        tree_structure_code = 'PER_ORG_TREE_STRUCTURE'
+                                        AND tree_code = 'ALS_ORGANIZATION_TREE'
+                                        AND depth = 2
+                                        AND organization_id = paam.legal_entity_id
+                                )
+                        )
+                        AND haouf.organization_id = houcf.organization_id
+                        AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                ) division,
+                (
+                    SELECT
+                        haouf.name
+                    FROM
+                        hr_org_unit_classifications_f   houcf,
+                        hr_all_organization_units_vl    haouf
+                    WHERE
+                        haouf.organization_id = paam.organization_id
+                        AND haouf.organization_id = houcf.organization_id
+                        AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                        AND houcf.classification_code = 'DEPARTMENT'
+                ) department,
+                (
+                    SELECT
+                        fvl.description
+                    FROM
+                        fnd_flex_values_vl fvl
+                    WHERE
+                        1 = 1
+                        AND fvl.value_category LIKE '%AS_COA_Department_VS%'
+                        AND fvl.enabled_flag = 'Y'
+                        AND fvl.flex_value IN (
+                            SELECT
+                                pcaa.segment3
+                            FROM
+                                hr_all_organization_units_f_vl   org,
+                                pay_cost_allocations_f           pca,
+                                pay_cost_alloc_accounts          pcaa
+                            WHERE
+                                org.organization_id = paam.organization_id
+                                AND pca.source_id = org.organization_id
+                                AND org.effective_start_date BETWEEN pca.effective_start_date AND pca.effective_end_date
+                                AND pca.cost_allocation_record_id = pcaa.cost_allocation_record_id
+                        )
+                ) department_costing,
+                TO_CHAR(papf.start_date, 'DD-MM-YYYY') hire_date,
+                (
+                    SELECT
+                        MAX(fl.meaning)
+                    FROM
+                        fnd_lookup_values_tl fl
+                    WHERE
+                        fl.lookup_type = 'NATIONALITY'
+                        AND fl.lookup_code (+) = pcz.legislation_code
+                        AND fl.language = userenv('LANG')
+                ) nationality,
+                paam.assignment_status_type   status
+            FROM
+                per_all_people_f                papf,
+                per_all_assignments_m           paam,
+                hr_org_unit_classifications_f   houcfb,
+                hr_all_organization_units_vl    haoufb,
+                per_person_names_f              ppnf,
+                hr_all_positions                hap,
+                pay_payroll_assignments         ppas,
+                pay_payroll_rel_actions         ppra,
+                pay_payroll_actions             ppa,
+                pay_time_periods                ptp,
+                pay_all_payrolls_f              pay,
+                per_citizenships                pcz
+            WHERE
+                papf.person_id = paam.person_id
+                AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+                AND paam.assignment_type IN (
+                    'E',
+                    'P'
+                )
+--AND PAAM.ASSIGNMENT_STATUS_TYPE = 'ACTIVE'
+                AND paam.effective_latest_change = 'Y'
+                AND paam.primary_flag = 'Y'
+                AND haoufb.organization_id = paam.business_unit_id
+                AND haoufb.organization_id = houcfb.organization_id
+                AND haoufb.effective_start_date BETWEEN houcfb.effective_start_date AND houcfb.effective_end_date
+                AND houcfb.classification_code = 'FUN_BUSINESS_UNIT'
+                AND papf.person_id = ppnf.person_id
+                AND ppnf.name_type = 'GLOBAL'
+                AND hap.position_id (+) = paam.position_id
+                AND pcz.person_id (+) = papf.person_id
+                AND trunc(SYSDATE) BETWEEN nvl(pcz.date_from(+), trunc(SYSDATE)) AND nvl(pcz.date_to(+), trunc(SYSDATE))
+--AND PAPF.PERSON_NUMBER = 80003
+                AND ( ( paam.legal_entity_id IN (
+                    :p_le
+                ) )
+                      OR ( least(:p_le) IS NULL ) )
+--AND TO_CHAR(PAAM.LEGAL_ENTITY_ID) = Nvl(TO_CHAR(:P_LE),PAAM.LEGAL_ENTITY_ID)
+                AND paam.assignment_id = ppas.hr_assignment_id
+                AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                AND ppra.action_status = 'C'
+                AND ppra.run_type_id IS NOT NULL
+                AND ppra.payroll_action_id = ppa.payroll_action_id
+                AND ppa.action_type IN (
+                    'R',
+                    'Q'
+                )
+                AND ppa.action_status = 'C'
+                AND ppa.payroll_id = ptp.payroll_id
+                AND ptp.period_category = 'E'
+                AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                AND ( ( ptp.time_period_id IN (
+                    :p_period
+                ) )
+                      OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                AND pay.payroll_id = :p_payroll
+                AND ptp.payroll_id = pay.payroll_id
+                AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+        ) emp
+    WHERE
+        1 = 1
+        AND ( ( emp.business_unit IN (
+            :p_bu
+        ) )
+              OR ( least(:p_bu) IS NULL ) )
+        AND ( ( emp.department IN (
+            :p_dept
+        ) )
+              OR ( least(:p_dept) IS NULL ) )
+        AND ( ( emp.status IN (
+            :p_status
+        ) )
+              OR ( least(:p_status) IS NULL ) )
+), sal_v AS (
+    SELECT
+        salary.sr_no,
+        salary.sequence_number,
+        salary.person_id       person_id1,
+        salary.assignment_id   assignment_id1,
+        salary.period_name,
+        salary.payroll_name,
+ --Decode(SALARY.ELEMENT_NAME,'Present Days','Present Days',SALARY.ELEMENT_NAME||' '||SALARY.INPUT_VAL_NAME) ELEMENT_NAME,
+        salary.element_name1   element_name,
+        SUM(salary.result_value) result_value
+    FROM
+        (
+            SELECT
+                sal.sr_no,
+                sal.sequence_number,
+                sal.person_id,
+                sal.assignment_id,
+                sal.period_name,
+                sal.payroll_name,
+                sal.element_name1,
+                sal.base_element_name,
+ --Decode(SAL.INPUT_VAL_NAME,'Pay Value','Amount',SAL.INPUT_VAL_NAME) INPUT_VAL_NAME,
+ --SAL.INPUT_VAL_NAME,
+                sal.result_value
+            FROM
+                (
+/*Select
+ 1 SR_NO,
+ 1 SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PET.ELEMENT_NAME,
+ PET.BASE_ELEMENT_NAME,
+ PIV.NAME INPUT_VAL_NAME,
+ Sum(PRRV.RESULT_VALUE) RESULT_VALUE
+From PER_ALL_PEOPLE_F PAPF,
+     PER_ALL_ASSIGNMENTS_M PAAM,
+	 PAY_PAYROLL_ASSIGNMENTS PPAS,
+	 PAY_PAYROLL_REL_ACTIONS PPRA,
+	 PAY_PAYROLL_ACTIONS PPA,
+	 PAY_TIME_PERIODS PTP,
+	 PAY_ALL_PAYROLLS_F PAY,
+	 PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV
+Where 1=1
+And Trunc(Sysdate) Between Trunc(PAPF.EFFECTIVE_START_DATE) And Trunc(PAPF.EFFECTIVE_END_DATE)
+And PAPF.PERSON_ID = PAAM.PERSON_ID
+--And PAPF.PERSON_NUMBER = '80003'
+And Trunc(Sysdate) Between Trunc(PAAM.EFFECTIVE_START_DATE) And Trunc(PAAM.EFFECTIVE_END_DATE)
+And PAAM.ASSIGNMENT_TYPE IN ('E','P')
+And PAAM.ASSIGNMENT_ID = PPAS.HR_ASSIGNMENT_ID
+And Trunc(Sysdate) Between Trunc(PPAS.START_DATE) And Trunc(PPAS.END_DATE)
+And PPAS.PAYROLL_RELATIONSHIP_ID = PPRA.PAYROLL_RELATIONSHIP_ID
+And PPRA.ACTION_STATUS = 'C'
+And PPRA.RUN_TYPE_ID IS NOT NULL
+And PPRA.PAYROLL_ACTION_ID = PPA.PAYROLL_ACTION_ID
+And PPA.ACTION_TYPE in ('R','Q')
+And PPA.ACTION_STATUS = 'C'
+And PPA.PAYROLL_ID = PTP.PAYROLL_ID
+And PTP.PERIOD_CATEGORY = 'E'
+And PTP.STATUS ='O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+And ((PTP.TIME_PERIOD_ID in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+And PAY.PAYROLL_ID = :P_PAYROLL
+And PTP.PAYROLL_ID = PAY.PAYROLL_ID
+And PPA.DATE_EARNED BETWEEN PAY.EFFECTIVE_START_DATE AND PAY.EFFECTIVE_END_DATE
+And PPA.DATE_EARNED BETWEEN PTP.START_DATE AND PTP.END_DATE
+And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+And PEC.BASE_CLASSIFICATION_NAME in ('Standard Earnings','Supplemental Earnings')
+And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+And PIV.NAME in ('Pay Value','Hours')
+And PET.ELEMENT_NAME = 'Basic Salary'
+Group By
+ PRR.SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PET.ELEMENT_NAME,
+ PET.BASE_ELEMENT_NAME,
+ PIV.NAME*/
+                    SELECT
+                        1 sr_no,
+                        cssc.display_sequence   sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        hl.meaning              element_name1,
+                        cssc.component_code     base_element_name,
+ --'Pay Value' INPUT_VAL_NAME,
+                        SUM(cssc.amount) result_value
+                    FROM
+                        per_all_people_f            papf,
+                        per_all_assignments_m       paam,
+                        pay_payroll_assignments     ppas,
+                        pay_payroll_rel_actions     ppra,
+                        pay_payroll_actions         ppa,
+                        pay_time_periods            ptp,
+                        pay_all_payrolls_f          pay,
+	 /*PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV,*/
+                        cmp_salary_simple_compnts   cssc,
+                        hcm_lookups                 hl
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+--And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+--And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+--And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+--And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+--And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+--And PEC.BASE_CLASSIFICATION_NAME in ('Standard Earnings','Supplemental Earnings')
+--And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+--And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+--And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+--And PIV.NAME in ('Pay Value','Hours')
+--And PET.ELEMENT_NAME = 'Basic Salary'
+                        AND papf.person_id = cssc.person_id
+                        AND paam.assignment_id = cssc.assignment_id
+                        AND hl.lookup_type = 'ORA_CMP_SIMPLE_SALARY_COMPS'
+                        AND cssc.component_code = hl.lookup_code
+                        AND hl.enabled_flag = 'Y'
+                        AND trunc(ptp.start_date) BETWEEN trunc(cssc.salary_date_from) AND trunc(cssc.salary_date_to)
+                        AND cssc.component_code NOT IN (
+                            'ORA_OVERALL_SALARY'
+                        )
+                    GROUP BY
+                        cssc.display_sequence,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        hl.meaning,
+                        cssc.component_code
+                    HAVING
+                        SUM(cssc.amount) > 0
+/*Union All
+Select
+ 1 SR_NO,
+ PRR.SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PET.ELEMENT_NAME,
+ PET.BASE_ELEMENT_NAME,
+ PIV.NAME INPUT_VAL_NAME,
+ Sum(PRRV.RESULT_VALUE) RESULT_VALUE
+From PER_ALL_PEOPLE_F PAPF,
+     PER_ALL_ASSIGNMENTS_M PAAM,
+	 PAY_PAYROLL_ASSIGNMENTS PPAS,
+	 PAY_PAYROLL_REL_ACTIONS PPRA,
+	 PAY_PAYROLL_ACTIONS PPA,
+	 PAY_TIME_PERIODS PTP,
+	 PAY_ALL_PAYROLLS_F PAY,
+	 PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV
+Where 1=1
+And Trunc(Sysdate) Between Trunc(PAPF.EFFECTIVE_START_DATE) And Trunc(PAPF.EFFECTIVE_END_DATE)
+And PAPF.PERSON_ID = PAAM.PERSON_ID
+--And PAPF.PERSON_NUMBER = '80003'
+And Trunc(Sysdate) Between Trunc(PAAM.EFFECTIVE_START_DATE) And Trunc(PAAM.EFFECTIVE_END_DATE)
+And PAAM.ASSIGNMENT_TYPE IN ('E','P')
+And PAAM.ASSIGNMENT_ID = PPAS.HR_ASSIGNMENT_ID
+And Trunc(Sysdate) Between Trunc(PPAS.START_DATE) And Trunc(PPAS.END_DATE)
+And PPAS.PAYROLL_RELATIONSHIP_ID = PPRA.PAYROLL_RELATIONSHIP_ID
+And PPRA.ACTION_STATUS = 'C'
+And PPRA.RUN_TYPE_ID IS NOT NULL
+And PPRA.PAYROLL_ACTION_ID = PPA.PAYROLL_ACTION_ID
+And PPA.ACTION_TYPE in ('R','Q')
+And PPA.ACTION_STATUS = 'C'
+And PPA.PAYROLL_ID = PTP.PAYROLL_ID
+And PTP.PERIOD_CATEGORY = 'E'
+And PTP.STATUS ='O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+And ((PTP.TIME_PERIOD_ID in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+And PAY.PAYROLL_ID = :P_PAYROLL
+And PTP.PAYROLL_ID = PAY.PAYROLL_ID
+And PPA.DATE_EARNED BETWEEN PAY.EFFECTIVE_START_DATE AND PAY.EFFECTIVE_END_DATE
+And PPA.DATE_EARNED BETWEEN PTP.START_DATE AND PTP.END_DATE
+And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+And PEC.BASE_CLASSIFICATION_NAME in ('Standard Earnings','Supplemental Earnings')
+And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+And PIV.NAME in ('Pay Value','Hours')
+And PET.ELEMENT_NAME Not in ('Basic Salary','Leave Salary')
+Group By
+ PRR.SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PET.ELEMENT_NAME,
+ PET.BASE_ELEMENT_NAME,
+ PIV.NAME*/
+/*Union All
+Select 
+ 2 SR_NO,
+ CMP .DISPLAY_SEQUENCE SEQUENCE_NUMBER,
+ CMP.PERSON_ID,
+ CMP.ASSIGNMENT_ID,
+ '' PERIOD_NAME,
+ '' PAYROLL_NAME,
+ 'Total Monthly Salary' ELEMENT_NAME,
+ CMP.COMPONENT_CODE BASE_ELEMENT_NAME,
+ 'Pay Value' INPUT_VAL_NAME,
+ CMP.AMOUNT RESULT_VALUE
+From CMP_SALARY_SIMPLE_COMPNTS CMP,
+     Per_All_People_F PAPF
+Where CMP.person_id = PAPF.person_id --300000016480440 
+And Trunc(Sysdate) Between Trunc(PAPF.EFFECTIVE_START_DATE) And Trunc(PAPF.EFFECTIVE_END_DATE)
+And CMP.COMPONENT_CODE = 'ORA_OVERALL_SALARY'
+And TRunc(Sysdate) Between Trunc(CMP.SALARY_DATE_FROM) And Trunc(CMP.SALARY_DATE_TO)*/
+                    UNION ALL
+                    SELECT
+                        2 sr_no,
+                        cssc.display_sequence sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        'Total Monthly Salary' element_name1,
+                        'TOTAL_MONTHLY_SALARY' base_element_name,
+ --'Pay Value' INPUT_VAL_NAME,
+                        SUM(cssc.amount) result_value
+                    FROM
+                        per_all_people_f            papf,
+                        per_all_assignments_m       paam,
+                        pay_payroll_assignments     ppas,
+                        pay_payroll_rel_actions     ppra,
+                        pay_payroll_actions         ppa,
+                        pay_time_periods            ptp,
+                        pay_all_payrolls_f          pay,
+	 /*PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV,*/
+                        cmp_salary_simple_compnts   cssc,
+                        hcm_lookups                 hl
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+--And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+--And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+--And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+--And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+--And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+--And PEC.BASE_CLASSIFICATION_NAME in ('Standard Earnings','Supplemental Earnings')
+--And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+--And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+--And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+--And PIV.NAME in ('Pay Value','Hours')
+--And PET.ELEMENT_NAME = 'Basic Salary'
+                        AND papf.person_id = cssc.person_id
+                        AND paam.assignment_id = cssc.assignment_id
+                        AND hl.lookup_type = 'ORA_CMP_SIMPLE_SALARY_COMPS'
+                        AND cssc.component_code = hl.lookup_code
+                        AND hl.enabled_flag = 'Y'
+                        AND trunc(ptp.start_date) BETWEEN trunc(cssc.salary_date_from) AND trunc(cssc.salary_date_to)
+                        AND cssc.component_code IN (
+                            'ORA_OVERALL_SALARY'
+                        )
+                    GROUP BY
+                        cssc.display_sequence,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        hl.meaning,
+                        cssc.component_code
+                    HAVING
+                        SUM(cssc.amount) > 0
+/*Select
+ 2 SR_NO,
+ 1 SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ 'Total Monthly Salary' ELEMENT_NAME,
+ 'TOTAL_MONTHLY_SALARY' BASE_ELEMENT_NAME,
+ PIV.NAME INPUT_VAL_NAME,
+ Sum(PRRV.RESULT_VALUE) RESULT_VALUE
+From PER_ALL_PEOPLE_F PAPF,
+     PER_ALL_ASSIGNMENTS_M PAAM,
+	 PAY_PAYROLL_ASSIGNMENTS PPAS,
+	 PAY_PAYROLL_REL_ACTIONS PPRA,
+	 PAY_PAYROLL_ACTIONS PPA,
+	 PAY_TIME_PERIODS PTP,
+	 PAY_ALL_PAYROLLS_F PAY,
+	 PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV
+Where 1=1
+And Trunc(Sysdate) Between Trunc(PAPF.EFFECTIVE_START_DATE) And Trunc(PAPF.EFFECTIVE_END_DATE)
+And PAPF.PERSON_ID = PAAM.PERSON_ID
+--And PAPF.PERSON_NUMBER = '80003'
+And Trunc(Sysdate) Between Trunc(PAAM.EFFECTIVE_START_DATE) And Trunc(PAAM.EFFECTIVE_END_DATE)
+And PAAM.ASSIGNMENT_TYPE IN ('E','P')
+And PAAM.ASSIGNMENT_ID = PPAS.HR_ASSIGNMENT_ID
+And Trunc(Sysdate) Between Trunc(PPAS.START_DATE) And Trunc(PPAS.END_DATE)
+And PPAS.PAYROLL_RELATIONSHIP_ID = PPRA.PAYROLL_RELATIONSHIP_ID
+And PPRA.ACTION_STATUS = 'C'
+And PPRA.RUN_TYPE_ID IS NOT NULL
+And PPRA.PAYROLL_ACTION_ID = PPA.PAYROLL_ACTION_ID
+And PPA.ACTION_TYPE in ('R','Q')
+And PPA.ACTION_STATUS = 'C'
+And PPA.PAYROLL_ID = PTP.PAYROLL_ID
+And PTP.PERIOD_CATEGORY = 'E'
+And PTP.STATUS ='O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+And ((PTP.TIME_PERIOD_ID in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+And PAY.PAYROLL_ID = :P_PAYROLL
+And PTP.PAYROLL_ID = PAY.PAYROLL_ID
+And PPA.DATE_EARNED BETWEEN PAY.EFFECTIVE_START_DATE AND PAY.EFFECTIVE_END_DATE
+And PPA.DATE_EARNED BETWEEN PTP.START_DATE AND PTP.END_DATE
+And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+And PEC.BASE_CLASSIFICATION_NAME in ('Standard Earnings','Supplemental Earnings')
+And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+And PIV.NAME in ('Pay Value')
+And PET.ELEMENT_NAME Not in ('Leave Salary Advance')--('Leave Salary')
+Group By
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PIV.NAME*/
+                    UNION ALL
+                    SELECT
+                        3 sr_no,
+                        1 sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        'Present Days' element_name1,
+                        pet.base_element_name,
+ --PIV.NAME INPUT_VAL_NAME,
+                        SUM(prrv.result_value) result_value
+                    FROM
+                        per_all_people_f             papf,
+                        per_all_assignments_m        paam,
+                        pay_payroll_assignments      ppas,
+                        pay_payroll_rel_actions      ppra,
+                        pay_payroll_actions          ppa,
+                        pay_time_periods             ptp,
+                        pay_all_payrolls_f           pay,
+                        pay_run_results              prr,
+                        pay_element_types_vl         pet,
+                        pay_ele_classifications_vl   pec,
+                        pay_run_result_values        prrv,
+                        pay_input_values_vl          piv
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prr.element_type_id = pet.element_type_id
+                        AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                        AND pet.classification_id = pec.classification_id
+                        AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                        AND pec.base_classification_name IN (
+                            'Information'
+                        )
+                        AND prr.run_result_id = prrv.run_result_id
+                        AND prrv.input_value_id = piv.input_value_id
+                        AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                        AND piv.name IN (
+                            'Present Days'
+                        )
+                        AND pet.element_name = 'Absence Days Information'
+                    GROUP BY
+                        prr.sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.base_element_name--,
+ --PIV.NAME
+                    UNION ALL
+                    SELECT
+                        4 sr_no,
+                        1 sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.reporting_name element_name1,
+                        pet.base_element_name,
+ --PIV.NAME INPUT_VAL_NAME,
+                        SUM(prrv.result_value) result_value
+                    FROM
+                        per_all_people_f             papf,
+                        per_all_assignments_m        paam,
+                        pay_payroll_assignments      ppas,
+                        pay_payroll_rel_actions      ppra,
+                        pay_payroll_actions          ppa,
+                        pay_time_periods             ptp,
+                        pay_all_payrolls_f           pay,
+                        pay_run_results              prr,
+                        pay_element_types_vl         pet,
+                        pay_ele_classifications_vl   pec,
+                        pay_run_result_values        prrv,
+                        pay_input_values_vl          piv
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prr.element_type_id = pet.element_type_id
+                        AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                        AND pet.classification_id = pec.classification_id
+                        AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                        AND pec.base_classification_name IN (
+                            'Supplemental Earnings'
+                        )--('Standard Earnings','Supplemental Earnings')
+                        AND prr.run_result_id = prrv.run_result_id
+                        AND prrv.input_value_id = piv.input_value_id
+                        AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                        AND piv.name IN (
+                            'Pay Value',
+                            'Hours'
+                        )
+                        AND pet.element_name = 'Leave Salary'
+                    GROUP BY
+                        prr.sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.reporting_name,
+                        pet.base_element_name--,
+ --PIV.NAME
+                    UNION ALL
+                    SELECT
+                        5 sr_no,
+                        prr.sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.reporting_name element_name1,
+                        pet.base_element_name,
+ --PIV.NAME INPUT_VAL_NAME,
+                        SUM(prrv.result_value) result_value
+                    FROM
+                        per_all_people_f             papf,
+                        per_all_assignments_m        paam,
+                        pay_payroll_assignments      ppas,
+                        pay_payroll_rel_actions      ppra,
+                        pay_payroll_actions          ppa,
+                        pay_time_periods             ptp,
+                        pay_all_payrolls_f           pay,
+                        pay_run_results              prr,
+                        pay_element_types_vl         pet,
+                        pay_ele_classifications_vl   pec,
+                        pay_run_result_values        prrv,
+                        pay_input_values_vl          piv
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prr.element_type_id = pet.element_type_id
+                        AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                        AND pet.classification_id = pec.classification_id
+                        AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                        AND pec.base_classification_name IN (
+                            'Supplemental Earnings'
+                        )--('Standard Earnings','Supplemental Earnings')
+                        AND prr.run_result_id = prrv.run_result_id
+                        AND prrv.input_value_id = piv.input_value_id
+                        AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                        AND piv.name IN (
+                            'Pay Value',
+                            'Hours'
+                        )
+                        AND pet.element_name NOT IN (
+                            'Leave Salary Advance'
+                        )--('Basic Salary','Leave Salary Advance')
+                    GROUP BY
+                        prr.sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.reporting_name,
+                        pet.base_element_name--,
+ --PIV.NAME
+                    UNION ALL
+                    SELECT
+                        6 sr_no,
+                        1 sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        'Salary Earned' element_name1,
+                        'SALARY_EARNED' base_element_name,
+ --PIV.NAME INPUT_VAL_NAME,
+                        SUM(prrv.result_value) result_value
+                    FROM
+                        per_all_people_f             papf,
+                        per_all_assignments_m        paam,
+                        pay_payroll_assignments      ppas,
+                        pay_payroll_rel_actions      ppra,
+                        pay_payroll_actions          ppa,
+                        pay_time_periods             ptp,
+                        pay_all_payrolls_f           pay,
+                        pay_run_results              prr,
+                        pay_element_types_vl         pet,
+                        pay_ele_classifications_vl   pec,
+                        pay_run_result_values        prrv,
+                        pay_input_values_vl          piv
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prr.element_type_id = pet.element_type_id
+                        AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                        AND pet.classification_id = pec.classification_id
+                        AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                        AND pec.base_classification_name IN (
+                            'Standard Earnings',
+                            'Supplemental Earnings'
+                        )
+                        AND prr.run_result_id = prrv.run_result_id
+                        AND prrv.input_value_id = piv.input_value_id
+                        AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                        AND piv.name IN (
+                            'Pay Value'
+                        )
+                        AND pet.element_name NOT IN (
+                            'Leave Salary',
+                            'Leave Salary Advance'
+                        )
+                    GROUP BY
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name--,
+ --PIV.NAME 
+                    UNION ALL 
+ /*Select
+ 3 SR_NO,
+ PRR.SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PET.ELEMENT_NAME,
+ PET.BASE_ELEMENT_NAME,
+ PIV.NAME INPUT_VAL_NAME,
+ Sum(PRRV.RESULT_VALUE) RESULT_VALUE
+From PER_ALL_PEOPLE_F PAPF,
+     PER_ALL_ASSIGNMENTS_M PAAM,
+	 PAY_PAYROLL_ASSIGNMENTS PPAS,
+	 PAY_PAYROLL_REL_ACTIONS PPRA,
+	 PAY_PAYROLL_ACTIONS PPA,
+	 PAY_TIME_PERIODS PTP,
+	 PAY_ALL_PAYROLLS_F PAY,
+	 PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV
+Where 1=1
+And Trunc(Sysdate) Between Trunc(PAPF.EFFECTIVE_START_DATE) And Trunc(PAPF.EFFECTIVE_END_DATE)
+And PAPF.PERSON_ID = PAAM.PERSON_ID
+--And PAPF.PERSON_NUMBER = '80003'
+And Trunc(Sysdate) Between Trunc(PAAM.EFFECTIVE_START_DATE) And Trunc(PAAM.EFFECTIVE_END_DATE)
+And PAAM.ASSIGNMENT_TYPE IN ('E','P')
+And PAAM.ASSIGNMENT_ID = PPAS.HR_ASSIGNMENT_ID
+And Trunc(Sysdate) Between Trunc(PPAS.START_DATE) And Trunc(PPAS.END_DATE)
+And PPAS.PAYROLL_RELATIONSHIP_ID = PPRA.PAYROLL_RELATIONSHIP_ID
+And PPRA.ACTION_STATUS = 'C'
+And PPRA.RUN_TYPE_ID IS NOT NULL
+And PPRA.PAYROLL_ACTION_ID = PPA.PAYROLL_ACTION_ID
+And PPA.ACTION_TYPE in ('R','Q')
+And PPA.ACTION_STATUS = 'C'
+And PPA.PAYROLL_ID = PTP.PAYROLL_ID
+And PTP.PERIOD_CATEGORY = 'E'
+And PTP.STATUS ='O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+And ((PTP.TIME_PERIOD_ID in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+And PAY.PAYROLL_ID = :P_PAYROLL
+And PTP.PAYROLL_ID = PAY.PAYROLL_ID
+And PPA.DATE_EARNED BETWEEN PAY.EFFECTIVE_START_DATE AND PAY.EFFECTIVE_END_DATE
+And PPA.DATE_EARNED BETWEEN PTP.START_DATE AND PTP.END_DATE
+And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+And PEC.BASE_CLASSIFICATION_NAME in ('Information')
+And PET.ELEMENT_NAME in ('Gross Salary')
+And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+And PIV.NAME in ('Amount')
+Group By
+ PRR.SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ PET.ELEMENT_NAME,
+ PET.BASE_ELEMENT_NAME,
+ PIV.NAME*/
+                    SELECT DISTINCT
+                        7 sr_no,
+                        1 sequence_number,
+                        papf.person_id,
+                        paaf.assignment_id,
+                        ptp.period_name,
+                        prl.payroll_name,
+                        'Gross Salary' element_name1,
+                        'GROSS_SALARY' base_element_name,
+	--pivf.NAME INPUT_VAL_NAME,
+	--PRRV.RESULT_VALUE,
+                        prb.balance_value result_value
+                    FROM
+                        per_all_people_f           papf,
+    --per_national_identifiers   pni,
+    --per_periods_of_service     ppos,
+                        per_all_assignments_f      paaf,
+                        pay_payroll_assignments    ppasg,
+                        pay_pay_relationships_dn   pprd,
+                        pay_payroll_rel_actions    ppra,
+                        pay_run_results            prr,
+                        pay_run_result_values      prrv,
+                        pay_input_values_vl        pivf,
+                        pay_balance_feeds_f        pbf,
+                        pay_balance_types_vl       pbtv,
+                        pay_payroll_actions        ppa,
+                        pay_all_payrolls_f         prl,
+                        pay_run_balances           prb,
+                        pay_defined_balances       pdb,
+                        pay_balance_dimensions     pbd,
+                        pay_time_periods           ptp
+                    WHERE
+                        1 = 1
+    --AND papf.person_number = '101081'
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+    --AND papf.primary_nid_id = pni.national_identifier_id (+)
+    --AND pni.national_identifier_type (+) = 'SSN'
+    --AND ppos.person_id = papf.person_id
+    --AND paaf.person_id = ppos.person_id
+    --AND paaf.period_of_service_id = ppos.period_of_service_id
+                        AND papf.person_id = paaf.person_id
+                        AND paaf.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND trunc(SYSDATE) BETWEEN trunc(paaf.effective_start_date) AND trunc(paaf.effective_end_date)
+                        AND paaf.assignment_id = ppasg.hr_assignment_id
+                        AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppasg.start_date) AND trunc(ppasg.end_date)
+                        AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                        AND trunc(SYSDATE) BETWEEN trunc(pprd.start_date) AND trunc(pprd.end_date)
+                        AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                        AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prrv.run_result_id = prr.run_result_id
+                        AND pivf.input_value_id = prrv.input_value_id
+                        AND pbf.input_value_id = pivf.input_value_id
+                        AND pbtv.balance_type_id = pbf.balance_type_id
+                        AND pbf.input_value_id = pivf.input_value_id
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND prl.payroll_id = ppa.payroll_id
+                        AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                        AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                        AND pdb.defined_balance_id = prb.defined_balance_id
+                        AND pdb.balance_type_id = pbtv.balance_type_id
+                        AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                        AND pbd.base_dimension_name = 'Core Relationship Run'--'Core Assignment Run'
+                        AND pbtv.balance_name = 'Gross Earnings'
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+	--And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+	--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+	--And PTP.TIME_PERIOD_ID = :P_PERIOD
+	--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+	--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND prl.payroll_id = :p_payroll
+                        AND ptp.payroll_id = prl.payroll_id
+                        AND ppa.date_earned BETWEEN prl.effective_start_date AND prl.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+--and trunc(PPA.effective_date) = to_date('02/28/2023','MM/DD/YYYY') 
+                    UNION ALL
+                    SELECT
+                        8 sr_no,
+                        prr.sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.reporting_name element_name1,
+                        pet.base_element_name,
+ --PIV.NAME INPUT_VAL_NAME,
+                        SUM(prrv.result_value) result_value
+                    FROM
+                        per_all_people_f             papf,
+                        per_all_assignments_m        paam,
+                        pay_payroll_assignments      ppas,
+                        pay_payroll_rel_actions      ppra,
+                        pay_payroll_actions          ppa,
+                        pay_time_periods             ptp,
+                        pay_all_payrolls_f           pay,
+                        pay_run_results              prr,
+                        pay_element_types_vl         pet,
+                        pay_ele_classifications_vl   pec,
+                        pay_run_result_values        prrv,
+                        pay_input_values_vl          piv
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prr.element_type_id = pet.element_type_id
+                        AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                        AND pet.classification_id = pec.classification_id
+                        AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                        AND pec.base_classification_name IN (
+                            'Involuntary Deductions',
+                            'Voluntary Deductions',
+                            'Social Insurance Deductions'
+                        )
+                        AND prr.run_result_id = prrv.run_result_id
+                        AND prrv.input_value_id = piv.input_value_id
+                        AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                        AND piv.name IN (
+                            'Pay Value'
+                        )
+                    GROUP BY
+                        prr.sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+ --PET.ELEMENT_NAME,
+                        pet.reporting_name,
+                        pet.base_element_name--,
+ --PIV.NAME
+                    UNION ALL
+                    SELECT
+                        9 sr_no,
+                        1 sequence_number,
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name,
+                        'Total Deductions' element_name1,
+                        'TOT_DEDUCT' base_element_name,
+ --PIV.NAME INPUT_VAL_NAME,
+                        SUM(prrv.result_value) result_value
+                    FROM
+                        per_all_people_f             papf,
+                        per_all_assignments_m        paam,
+                        pay_payroll_assignments      ppas,
+                        pay_payroll_rel_actions      ppra,
+                        pay_payroll_actions          ppa,
+                        pay_time_periods             ptp,
+                        pay_all_payrolls_f           pay,
+                        pay_run_results              prr,
+                        pay_element_types_vl         pet,
+                        pay_ele_classifications_vl   pec,
+                        pay_run_result_values        prrv,
+                        pay_input_values_vl          piv
+                    WHERE
+                        1 = 1
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                        AND papf.person_id = paam.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                        AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                        AND paam.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND paam.assignment_id = ppas.hr_assignment_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                        AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND ppra.action_status = 'C'
+                        AND ppra.run_type_id IS NOT NULL
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND pay.payroll_id = :p_payroll
+                        AND ptp.payroll_id = pay.payroll_id
+                        AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prr.element_type_id = pet.element_type_id
+                        AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                        AND pet.classification_id = pec.classification_id
+                        AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                        AND pec.base_classification_name IN (
+                            'Involuntary Deductions',
+                            'Voluntary Deductions',
+                            'Social Insurance Deductions'
+                        )
+                        AND prr.run_result_id = prrv.run_result_id
+                        AND prrv.input_value_id = piv.input_value_id
+                        AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                        AND piv.name IN (
+                            'Pay Value'
+                        )
+                    GROUP BY
+                        papf.person_id,
+                        paam.assignment_id,
+                        ptp.period_name,
+                        pay.payroll_name--,
+ --PIV.NAME
+                    UNION ALL
+/*Select
+ 6 SR_NO,
+ 1 SEQUENCE_NUMBER,
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ 'Net Salary' ELEMENT_NAME,
+ 'NET_SALARY' BASE_ELEMENT_NAME,
+ PIV.NAME INPUT_VAL_NAME,
+ --Sum(Case When PEC.BASE_CLASSIFICATION_NAME <> 'Standard Earnings' Then (TO_NUMBER(PRRV.RESULT_VALUE) * -1) Else TO_NUMBER(PRRV.RESULT_VALUE) End) RESULT_VALUE
+ Sum(Case When PEC.BASE_CLASSIFICATION_NAME NOT IN ('Standard Earnings','Supplemental Earnings') Then (TO_NUMBER(PRRV.RESULT_VALUE) * -1) Else TO_NUMBER(PRRV.RESULT_VALUE) End) RESULT_VALUE
+From PER_ALL_PEOPLE_F PAPF,
+     PER_ALL_ASSIGNMENTS_M PAAM,
+	 PAY_PAYROLL_ASSIGNMENTS PPAS,
+	 PAY_PAYROLL_REL_ACTIONS PPRA,
+	 PAY_PAYROLL_ACTIONS PPA,
+	 PAY_TIME_PERIODS PTP,
+	 PAY_ALL_PAYROLLS_F PAY,
+	 PAY_RUN_RESULTS PRR,
+	 PAY_ELEMENT_TYPES_VL PET,
+	 PAY_ELE_CLASSIFICATIONS_VL PEC,
+	 PAY_RUN_RESULT_VALUES PRRV,
+	 PAY_INPUT_VALUES_VL PIV
+Where 1=1
+And Trunc(Sysdate) Between Trunc(PAPF.EFFECTIVE_START_DATE) And Trunc(PAPF.EFFECTIVE_END_DATE)
+And PAPF.PERSON_ID = PAAM.PERSON_ID
+--And PAPF.PERSON_NUMBER = '80003'
+And Trunc(Sysdate) Between Trunc(PAAM.EFFECTIVE_START_DATE) And Trunc(PAAM.EFFECTIVE_END_DATE)
+And PAAM.ASSIGNMENT_TYPE IN ('E','P')
+And PAAM.ASSIGNMENT_ID = PPAS.HR_ASSIGNMENT_ID
+And Trunc(Sysdate) Between Trunc(PPAS.START_DATE) And Trunc(PPAS.END_DATE)
+And PPAS.PAYROLL_RELATIONSHIP_ID = PPRA.PAYROLL_RELATIONSHIP_ID
+And PPRA.ACTION_STATUS = 'C'
+And PPRA.RUN_TYPE_ID IS NOT NULL
+And PPRA.PAYROLL_ACTION_ID = PPA.PAYROLL_ACTION_ID
+And PPA.ACTION_TYPE in ('R','Q')
+And PPA.ACTION_STATUS = 'C'
+And PPA.PAYROLL_ID = PTP.PAYROLL_ID
+And PTP.PERIOD_CATEGORY = 'E'
+And PTP.STATUS ='O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+And ((PTP.TIME_PERIOD_ID in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+And PAY.PAYROLL_ID = :P_PAYROLL
+And PTP.PAYROLL_ID = PAY.PAYROLL_ID
+And PPA.DATE_EARNED BETWEEN PAY.EFFECTIVE_START_DATE AND PAY.EFFECTIVE_END_DATE
+And PPA.DATE_EARNED BETWEEN PTP.START_DATE AND PTP.END_DATE
+And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID
+And PRR.ELEMENT_TYPE_ID = PET.ELEMENT_TYPE_ID
+And PPA.DATE_EARNED BETWEEN PET.EFFECTIVE_START_DATE AND PET.EFFECTIVE_END_DATE
+And PET.CLASSIFICATION_ID = PEC.CLASSIFICATION_ID
+And PPA.DATE_EARNED BETWEEN PEC.DATE_FROM AND NVL(PEC.DATE_TO,to_date('12-31-4712','MM-DD-YYYY'))
+And PEC.BASE_CLASSIFICATION_NAME in ('Standard Earnings','Involuntary Deductions','Voluntary Deductions','Social Insurance Deductions','Supplemental Earnings')
+And PRR.RUN_RESULT_ID = PRRV.RUN_RESULT_ID
+And PRRV.INPUT_VALUE_ID = PIV.INPUT_VALUE_ID
+And Trunc(Sysdate) BETWEEN Trunc(PIV.EFFECTIVE_START_DATE) AND Trunc(PIV.EFFECTIVE_END_DATE)
+And PIV.NAME in ('Pay Value')
+Group By
+ PAPF.PERSON_ID,
+ PAAM.ASSIGNMENT_ID,
+ PTP.PERIOD_NAME,
+ PAY.PAYROLL_NAME,
+ --PEC.BASE_CLASSIFICATION_NAME,
+ PIV.NAME*/
+                    SELECT DISTINCT
+                        10 sr_no,
+                        1 sequence_number,
+                        papf.person_id,
+                        paaf.assignment_id,
+                        ptp.period_name,
+                        prl.payroll_name,
+                        'Net Salary' element_name1,
+                        'NET_SALARY' base_element_name,
+	--pivf.NAME INPUT_VAL_NAME,
+	--PRRV.RESULT_VALUE,
+                        prb.balance_value result_value
+                    FROM
+                        per_all_people_f           papf,
+    --per_national_identifiers   pni,
+    --per_periods_of_service     ppos,
+                        per_all_assignments_f      paaf,
+                        pay_payroll_assignments    ppasg,
+                        pay_pay_relationships_dn   pprd,
+                        pay_payroll_rel_actions    ppra,
+                        pay_run_results            prr,
+                        pay_run_result_values      prrv,
+                        pay_input_values_vl        pivf,
+                        pay_balance_feeds_f        pbf,
+                        pay_balance_types_vl       pbtv,
+                        pay_payroll_actions        ppa,
+                        pay_all_payrolls_f         prl,
+                        pay_run_balances           prb,
+                        pay_defined_balances       pdb,
+                        pay_balance_dimensions     pbd,
+                        pay_time_periods           ptp
+                    WHERE
+                        1 = 1
+    --AND papf.person_number = '101081'
+                        AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+    --AND papf.primary_nid_id = pni.national_identifier_id (+)
+    --AND pni.national_identifier_type (+) = 'SSN'
+    --AND ppos.person_id = papf.person_id
+    --AND paaf.person_id = ppos.person_id
+    --AND paaf.period_of_service_id = ppos.period_of_service_id
+                        AND papf.person_id = paaf.person_id
+                        AND paaf.assignment_type IN (
+                            'E',
+                            'P'
+                        )
+                        AND trunc(SYSDATE) BETWEEN trunc(paaf.effective_start_date) AND trunc(paaf.effective_end_date)
+                        AND paaf.assignment_id = ppasg.hr_assignment_id
+                        AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                        AND trunc(SYSDATE) BETWEEN trunc(ppasg.start_date) AND trunc(ppasg.end_date)
+                        AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                        AND trunc(SYSDATE) BETWEEN trunc(pprd.start_date) AND trunc(pprd.end_date)
+                        AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                        AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                        AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                        AND prrv.run_result_id = prr.run_result_id
+                        AND pivf.input_value_id = prrv.input_value_id
+                        AND pbf.input_value_id = pivf.input_value_id
+                        AND pbtv.balance_type_id = pbf.balance_type_id
+                        AND pbf.input_value_id = pivf.input_value_id
+                        AND ppra.payroll_action_id = ppa.payroll_action_id
+                        AND prl.payroll_id = ppa.payroll_id
+                        AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                        AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                        AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                        AND pdb.defined_balance_id = prb.defined_balance_id
+                        AND pdb.balance_type_id = pbtv.balance_type_id
+                        AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                        AND pbd.base_dimension_name = 'Core Relationship Run'--'Core Assignment Run'
+                        AND pbtv.balance_name = 'Net Pay'
+                        AND ppa.action_type IN (
+                            'R',
+                            'Q'
+                        )
+                        AND ppa.action_status = 'C'
+                        AND ppa.payroll_id = ptp.payroll_id
+                        AND ptp.period_category = 'E'
+                        AND ptp.status = 'O'
+	--And PTP.PERIOD_NAME = '2 2023 Monthly Calendar'
+	--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                        AND ( ( ptp.time_period_id IN (
+                            :p_period
+                        ) )
+                              OR ( least(:p_period) IS NULL ) )
+	--And PTP.TIME_PERIOD_ID = :P_PERIOD
+	--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+	--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                        AND prl.payroll_id = :p_payroll
+                        AND ptp.payroll_id = prl.payroll_id
+                        AND ppa.date_earned BETWEEN prl.effective_start_date AND prl.effective_end_date
+                        AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+--and trunc(PPA.effective_date) = to_date('02/28/2023','MM/DD/YYYY')
+                ) sal
+            ORDER BY
+                sal.person_id,
+                sal.sr_no,
+                sal.sequence_number--,
+--SAL.INPUT_VAL_NAME
+        ) salary
+    GROUP BY
+        salary.sr_no,
+        salary.sequence_number,
+        salary.person_id,
+        salary.assignment_id,
+        salary.period_name,
+        salary.payroll_name,
+ --SALARY.ELEMENT_NAME||' '||SALARY.INPUT_VAL_NAME
+ --Decode(SALARY.ELEMENT_NAME,'Present Days','Present Days',SALARY.ELEMENT_NAME||' '||SALARY.INPUT_VAL_NAME)
+        salary.element_name1
+    ORDER BY
+        salary.person_id,
+        salary.sr_no,
+        salary.sequence_number
+)
+SELECT
+--EMP_V.BUSINESS_UNIT,
+    emp_v.person_id,
+    emp_v.assignment_id,
+    emp_v.employee_number,
+    emp_v.employee_name,
+    emp_v.designation,
+--EMP_V.DIVISION,
+    emp_v.department,
+    emp_v.department_costing,
+    emp_v.hire_date,
+--EMP_V.NATIONALITY,
+--EMP_V.STATUS,
+    sal_v.sr_no,
+    sal_v.sequence_number,
+    sal_v.person_id1,
+    sal_v.assignment_id1,
+    sal_v.period_name,
+    sal_v.payroll_name,
+    sal_v.element_name,
+    nvl(sal_v.result_value, 0) result_value
+FROM
+    emp_v,
+    sal_v
+WHERE
+    1 = 1
+    AND emp_v.person_id = sal_v.person_id1
+    AND emp_v.status NOT IN (
+        'Resigned',
+        'Terminated'
+    )
+    AND sal_v.element_name NOT IN (
+        'Leave Salary Advance'
+    )--('Leave Salary Amount')
+--And EMP_V.EMPLOYEE_NUMBER='100130'
+    AND NOT EXISTS (
+        SELECT DISTINCT
+            papf.person_id
+        FROM
+            per_all_people_f             papf,
+            per_all_assignments_m        paam,
+            pay_payroll_assignments      ppas,
+            pay_payroll_rel_actions      ppra,
+            pay_payroll_actions          ppa,
+            pay_time_periods             ptp,
+            pay_all_payrolls_f           pay,
+            pay_run_results              prr,
+            pay_element_types_vl         pet,
+            pay_ele_classifications_vl   pec,
+            pay_run_result_values        prrv,
+            pay_input_values_vl          piv
+        WHERE
+            1 = 1
+            AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+            AND papf.person_id = paam.person_id
+						--And PAPF.PERSON_NUMBER = '80003'
+            AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+            AND paam.assignment_type IN (
+                'E',
+                'P'
+            )
+            AND paam.assignment_id = ppas.hr_assignment_id
+            AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+            AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+            AND ppra.action_status = 'C'
+            AND ppra.run_type_id IS NOT NULL
+            AND ppra.payroll_action_id = ppa.payroll_action_id
+            AND ppa.action_type IN (
+                'R',
+                'Q'
+            )
+            AND ppa.action_status = 'C'
+            AND ppa.payroll_id = ptp.payroll_id
+            AND ptp.period_category = 'E'
+            AND ptp.status = 'O'
+						--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+						--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+            AND ( ( ptp.time_period_id IN (
+                :p_period
+            ) )
+                  OR ( least(:p_period) IS NULL ) )
+						--And PTP.TIME_PERIOD_ID = :P_PERIOD
+						--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+						--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+            AND pay.payroll_id = :p_payroll
+            AND ptp.payroll_id = pay.payroll_id
+            AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+            AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+            AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+            AND prr.element_type_id = pet.element_type_id
+            AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+            AND pet.classification_id = pec.classification_id
+            AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+            AND pec.base_classification_name IN (
+                'Supplemental Earnings'
+            )--('Standard Earnings','Supplemental Earnings')
+            AND prr.run_result_id = prrv.run_result_id
+            AND prrv.input_value_id = piv.input_value_id
+            AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+            AND piv.name IN (
+                'Pay Value',
+                'Hours'
+            )
+            AND pet.element_name = 'Leave Salary Advance'
+            AND papf.person_id = emp_v.person_id
+    )
+ORDER BY 
+ --EMP_V.PERSON_ID,
+    sal_v.sr_no,
+    sal_v.sequence_number,
+    emp_v.employee_number
+   
+   =============================================== DS 2 (Param) =========================================
+   
+   SELECT
+    (
+        SELECT
+            payroll_name
+        FROM
+            pay_all_payrolls_f
+        WHERE
+            trunc(SYSDATE) BETWEEN trunc(effective_start_date) AND trunc(effective_end_date)
+            AND payroll_id = :p_payroll
+    ) param_payroll_n,
+    (
+        SELECT
+            ptp.period_name
+        FROM
+            pay_time_periods     ptp,
+            pay_all_payrolls_f   pay
+        WHERE
+            ptp.payroll_id = pay.payroll_id
+            AND trunc(SYSDATE) BETWEEN trunc(pay.effective_start_date) AND trunc(pay.effective_end_date)
+            AND TO_CHAR(pay.payroll_id) = :p_payroll
+            AND ptp.period_category = 'E'
+            AND ptp.time_period_id = :p_period
+    ) param_period
+FROM
+    dual
+    
