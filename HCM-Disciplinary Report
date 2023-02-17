@@ -1,0 +1,104 @@
+SELECT
+    person_number         AS "EMP ID",
+    display_name          AS "Employee Name",
+    doj                   AS "Join Date",
+    position,
+    department_code       AS "Department",
+    legal_entity_code     AS "Company Name",
+    supervisor            AS "Line Manager",
+    disciplinary_type     AS "Disciplinary Type",
+    reason,
+    incident_date         AS "Incident Date",
+    warning_issued_date   AS "Warning Issued Date",
+    pay_deduction         AS "Pay Deduction"
+FROM
+    (
+        SELECT
+            hou.name               legal_entity_code,
+            houb.name              business_unit_code,
+            hous.name              department_code,
+            (
+                SELECT
+                    ftt.territory_short_name
+                FROM
+                    per_locations        pl,
+                    fnd_territories_tl   ftt
+                WHERE
+                    location_id = paam.location_id
+                    AND pl.country = ftt.territory_code
+                    AND ftt.language = 'US'
+                    AND ROWNUM = 1
+            ) country,
+            pldft.location_name    location_code,
+            papf.person_number,
+            ppnf.display_name,
+            TO_CHAR(ppos.date_start, 'DD-MON-YYYY', 'nls_date_language = english') doj,
+            TO_CHAR(ppos.actual_termination_date, 'DD-MON-YYYY', 'nls_date_language = english') dol,
+            ppnf1.display_name     supervisor,
+            posft.name             position,
+            hrl.meaning            disciplinary_type,
+            eit.pei_information2   reason,
+            TO_CHAR(eit.pei_information_date1, 'DD-MON-YYYY', 'nls_date_language = english') incident_date,
+            TO_CHAR(eit.pei_information_date2, 'DD-MON-YYYY', 'nls_date_language = english') warning_issued_date,
+            eit.pei_information3   pay_deduction
+        FROM
+            per_all_people_f               papf,
+            per_periods_of_service         ppos,
+            per_person_names_f             ppnf,
+            per_all_assignments_m          paam,
+            hr_organization_units          hou,
+            hr_organization_units          houb,
+            hr_organization_units          hous,
+            per_location_details_f         pldf,
+            per_location_details_f_tl      pldft,
+            per_assignment_supervisors_f   pasf,
+            per_person_names_f             ppnf1,
+            hr_all_positions_f             posf,
+            hr_all_positions_f_tl          posft,
+            per_people_extra_info_f        eit,
+            hr_lookups                     hrl
+        WHERE
+            papf.person_id = paam.person_id
+            AND paam.period_of_service_id = ppos.period_of_service_id
+            AND ppnf.person_id = papf.person_id
+            AND ppnf.name_type = 'GLOBAL'
+            AND paam.primary_flag = 'Y'
+            AND paam.assignment_status_type = 'ACTIVE'
+            AND pasf.person_id = papf.person_id
+            AND pasf.assignment_id = paam.assignment_id
+            AND pasf.manager_id = ppnf1.person_id
+            AND trunc(SYSDATE) BETWEEN pasf.effective_start_date AND pasf.effective_end_date
+            AND trunc(SYSDATE) BETWEEN ppnf1.effective_start_date AND ppnf1.effective_end_date
+            AND ppnf1.name_type = 'GLOBAL'
+            AND pasf.manager_type = 'LINE_MANAGER'
+            AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(ppnf.effective_start_date) AND trunc(ppnf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+            AND ppos.person_id = papf.person_id
+            AND hrl.lookup_type = 'ORA_HRX_IT_DISC_EVENT'
+            AND eit.pei_information1 = hrl.lookup_code
+            AND ppos.primary_flag = 'Y'
+            AND ppos.legal_entity_id = hou.organization_id
+            AND paam.business_unit_id = houb.organization_id
+            AND paam.organization_id = hous.organization_id
+            AND paam.location_id = pldf.location_id
+            AND pldf.location_details_id = pldft.location_details_id
+            AND pldft.language = 'US'
+            AND trunc(SYSDATE) BETWEEN trunc(pldf.effective_start_date) AND trunc(pldf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(pldft.effective_start_date) AND trunc(pldft.effective_end_date)
+            AND posf.position_id = posft.position_id
+            AND posf.position_id = paam.position_id
+            AND trunc(SYSDATE) BETWEEN trunc(posf.effective_start_date) AND trunc(posf.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(posft.effective_start_date) AND trunc(posft.effective_end_date)
+            AND eit.person_id = papf.person_id
+            AND trunc(SYSDATE) BETWEEN trunc(eit.effective_start_date) AND trunc(eit.effective_end_date)
+            AND eit.information_type = 'Person Disciplinary Action'
+    )
+WHERE
+    1 = 1
+    AND legal_entity_code = nvl(:p_legal_employee, legal_entity_code)
+    AND business_unit_code = nvl(:p_business_unit, business_unit_code)
+    AND department_code = nvl(:p_department, department_code)
+    AND location_code = nvl(:p_location, location_code)
+    AND person_number = nvl(:p_employee_num, person_number)
+    AND display_name = nvl(:p_employee_name, display_name)
