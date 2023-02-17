@@ -1,0 +1,1200 @@
+============================= DS 1 (TEST_DM) ====================================
+---------------SALARY INCREMENT REPORT----------------------
+SELECT
+    sys_date,
+    employee_name,
+    designation,
+    employee_code,
+    department,
+    company_name,
+    location,
+    first_name_of_employee,
+    to_number(subject) AS subject,
+    sub,
+    new_position,
+    effective_from_date,
+    title,
+    salary_structure,
+    components,
+    probation_month,
+    previous_amount,
+    new_amount,
+    total_salary,
+    approver_number,
+    approver_name,
+    approver_designation,
+    legal_entity,
+    approver_signatory,
+    assignment_id
+FROM
+    (
+        SELECT
+            sys_date,
+            employee_name,
+            designation,
+            employee_code,
+            department,
+            company_name,
+            location,
+            first_name_of_employee,
+            (
+                CASE
+                    WHEN subject = 'Subject - Promotion'                                  THEN
+                        1
+                    WHEN subject = 'Subject - Salary Increment'                           THEN
+                        2
+                    WHEN subject = 'Subject -Salary Increment(Probationary Confirmation)' THEN
+                        3
+                END
+            ) AS subject,
+            subject AS sub,
+            new_position,
+            effective_from_date,
+            title,
+            salary_structure,
+            components,
+            probation_month,
+            previous_amount,
+            new_amount,
+            total_salary,
+            approver_number,
+            approver_name,
+            approver_designation,
+            legal_entity,
+            approver_signatory,
+            assignment_id
+        FROM
+            (
+                SELECT DISTINCT
+                    TO_CHAR(SYSDATE, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE=ENGLISH') sys_date,
+                    initcap(ppnf.title)
+                    || ' '
+                    || ppnf.display_name AS employee_name,
+                    (
+                        SELECT
+                            old_pos
+                        FROM
+                            (
+                                SELECT DISTINCT
+                                    j.name AS old_pos,
+                                    a.effective_start_date
+                                FROM
+                                    per_all_assignments_f    a,
+                                    hr_all_positions         j,
+                                    per_all_people_f         b,
+                                    per_person_names_f       c,
+                                    per_periods_of_service   t
+                                WHERE
+                                    a.position_id = j.position_id
+--AND B.PERSON_NUMBER = '100201'
+--and A.assignment_type='E' 
+                                    AND a.person_id = b.person_id
+                                    AND a.person_id = c.person_id
+                                    AND c.name_type = 'GLOBAL'
+                                    AND t.person_id = b.person_id
+                                    AND a.period_of_service_id = t.period_of_service_id
+--and a.SYSTEM_PERSON_TYPE in ('EMP','CWK')
+                                    AND a.effective_start_date = (
+                                        SELECT
+                                            MIN(x.effective_start_date)
+                                        FROM
+                                            per_all_assignments_f x
+                                        WHERE
+                                            x.grade_id IN (
+                                                SELECT
+                                                    y.grade_id
+                                                FROM
+                                                    per_all_assignments_f   y,
+                                                    hr_all_positions        z1
+                                                WHERE
+                                                    y.person_id = x.person_id
+--and  Y.assignment_type='E'
+                                                    AND y.position_id = z1.position_id
+                                            )
+                                            AND x.person_id = a.person_id
+--and  X.assignment_type='E'
+                                            AND x.position_id = a.position_id
+                                    )
+                                    AND a.person_id = paaf.person_id
+                                    AND trunc(a.effective_start_date) < trunc(paaf.effective_start_date)
+                                ORDER BY
+                                    a.effective_start_date DESC
+                            )
+                        WHERE
+                            ROWNUM = 1
+                    ) AS designation,
+                    papf.person_number   AS employee_code,
+                    (
+                        SELECT
+                            old_dept
+                        FROM
+                            (
+                                SELECT DISTINCT
+                                    j.name AS old_dept,
+                                    a.effective_start_date
+                                FROM
+                                    per_all_assignments_f       a,
+                                    hr_all_organization_units   j,
+                                    per_all_people_f            b,
+                                    per_person_names_f          c,
+                                    per_periods_of_service      t
+                                WHERE
+                                    a.organization_id = j.organization_id
+--AND    PAAF.ORGANIZATION_ID = HAOU.ORGANIZATION_ID
+--AND B.PERSON_NUMBER = '100201'
+--and A.assignment_type='E' 
+                                    AND a.person_id = b.person_id
+                                    AND a.person_id = c.person_id
+                                    AND c.name_type = 'GLOBAL'
+                                    AND t.person_id = b.person_id
+                                    AND a.period_of_service_id = t.period_of_service_id
+--and a.SYSTEM_PERSON_TYPE in ('EMP','CWK')
+                                    AND a.effective_start_date = (
+                                        SELECT
+                                            MIN(x.effective_start_date)
+                                        FROM
+                                            per_all_assignments_f x
+                                        WHERE
+                                            x.grade_id IN (
+                                                SELECT
+                                                    y.grade_id
+                                                FROM
+                                                    per_all_assignments_f       y,
+                                                    hr_all_organization_units   z1
+                                                WHERE
+                                                    y.person_id = x.person_id
+--and  Y.assignment_type='E'
+                                                    AND y.organization_id = z1.organization_id
+                                            )
+                                            AND x.person_id = a.person_id
+--and  X.assignment_type='E'
+                                            AND x.position_id = a.position_id
+                                    )
+                                    AND a.person_id = paaf.person_id
+                                    AND trunc(a.effective_start_date) < trunc(paaf.effective_start_date)
+                                ORDER BY
+                                    a.effective_start_date DESC
+                            )
+                        WHERE
+                            ROWNUM = 1
+                    ) AS department,
+                    (
+                        SELECT
+                            old_le
+                        FROM
+                            (
+                                SELECT DISTINCT
+                                    j.name AS old_le,
+                                    a.effective_start_date
+                                FROM
+                                    per_all_assignments_f    a,
+                                    hr_legal_entities        j,
+                                    per_all_people_f         b,
+                                    per_person_names_f       c,
+                                    per_periods_of_service   t
+                                WHERE
+                                    a.legal_entity_id = j.organization_id
+                                    AND j.status = 'A'
+                                    AND j.classification_code = 'HCM_LEMP'
+
+--AND    PAAF.ORGANIZATION_ID = HAOU.ORGANIZATION_ID
+--AND B.PERSON_NUMBER = '100201'
+--and A.assignment_type='E' 
+                                    AND a.person_id = b.person_id
+                                    AND a.person_id = c.person_id
+                                    AND c.name_type = 'GLOBAL'
+                                    AND t.person_id = b.person_id
+                                    AND a.period_of_service_id = t.period_of_service_id
+--and a.SYSTEM_PERSON_TYPE in ('EMP','CWK')
+                                    AND a.effective_start_date = (
+                                        SELECT
+                                            MIN(x.effective_start_date)
+                                        FROM
+                                            per_all_assignments_f x
+                                        WHERE
+                                            x.grade_id IN (
+                                                SELECT
+                                                    y.grade_id
+                                                FROM
+                                                    per_all_assignments_f   y,
+                                                    hr_legal_entities       z1
+                                                WHERE
+                                                    y.person_id = x.person_id
+--and  Y.assignment_type='E'
+                                                    AND y.legal_entity_id = z1.organization_id
+--AND    PAAF.LEGAL_ENTITY_ID = HLE.ORGANIZATION_ID(+)
+                                                    AND z1.status = 'A'
+                                                    AND z1.classification_code = 'HCM_LEMP'
+                                            )
+                                            AND x.person_id = a.person_id
+--and  X.assignment_type='E'
+                                            AND x.position_id = a.position_id
+                                    )
+                                    AND a.person_id = paaf.person_id
+                                    AND trunc(a.effective_start_date) < trunc(paaf.effective_start_date)
+                                ORDER BY
+                                    a.effective_start_date DESC
+                            )
+                        WHERE
+                            ROWNUM = 1
+                    ) AS company_name,
+                    (
+                        SELECT DISTINCT
+                            flv.meaning
+                        FROM
+                            fnd_lookup_values flv
+                        WHERE
+                            flv.lookup_code (+) = nvl(loc.country, paaf.legislation_code)
+                            AND flv.lookup_type = 'HZ_DOMAIN_SUFFIX_LIST'
+                            AND ROWNUM = 1
+                    ) AS location,
+                    (
+                        CASE
+                            WHEN ppnf.first_name IS NULL THEN
+                                ppnf.last_name
+                            ELSE
+                                ppnf.first_name
+                        END
+                    ) AS first_name_of_employee,
+                    'Subject - Promotion' AS subject,
+                    hp.name              AS new_position,
+                    TO_CHAR(paaf.effective_start_date, 'DD/MM/YYYY') AS effective_from_date,
+                    pg.name              AS title,
+                    'Salary Structure' AS salary_structure,
+                    'Components' AS components,
+                    NULL AS probation_month,
+                    cmp1.salary_amount   AS previous_amount,
+                    cmp.salary_amount    AS new_amount,
+                    cmp.annual_salary    AS total_salary,
+                    approval.approver_number,
+                    approval.approver_name,
+                    approval.approver_designation,
+                    approval.legal_entity,
+                    approval.approver_signatory,
+                    paaf.assignment_id
+                FROM
+                    per_all_people_f            papf,
+                    dual,
+                    per_all_assignments_f       paaf,
+                    per_person_names_f          ppnf,
+                    hr_all_organization_units   haou,
+                    hr_all_organization_units   hou,
+                    hr_legal_entities           hle,
+                    per_locations               loc,
+                    hr_all_positions            hp,
+                    per_grades                  pg,
+                    cmp_salary                  cmp,
+                    cmp_salary                  cmp1,
+                    (
+                        SELECT
+                            papf.person_number          approver_number,
+                            fur.row_low_range_or_name   legal_entity,
+                            ppnf.display_name           approver_name,
+                            fdt.dm_version_number       document_id,
+                            fdt.dm_document_id          ucmfile,
+                            hpb.dei_attribute31         approver_signatory,
+                            haouf.name                  approver_company,
+                            hap.name                    approver_designation
+                        FROM
+                            ff_user_tables                  fut,
+                            ff_user_columns                 fuc,
+                            ff_user_columns_tl              fuct,
+                            ff_user_rows_f                  fur,
+                            ff_user_column_instances_f      fuci,
+                            per_all_people_f                papf,
+                            per_all_assignments_m           paam,
+                            per_person_names_f              ppnf,
+                            hr_all_positions                hap,
+                            hr_documents_of_record          hpb,
+                            hr_document_types_tl            hdtl,
+                            fnd_attached_documents          fad,
+                            fnd_documents_tl                fdt,
+                            hr_org_unit_classifications_f   houcf,
+                            hr_all_organization_units_vl    haouf
+                        WHERE
+                            fut.user_table_id = fuc.user_table_id
+                            AND fuc.user_column_id = fuct.user_column_id
+                            AND fut.user_table_id = fur.user_table_id
+                            AND fuc.user_column_id = fuci.user_column_id
+                            AND fur.user_row_id = fuci.user_row_id
+                            AND fut.base_user_table_name = 'ALS_SIGNATORIES'
+                            AND fuci.value = papf.person_number
+                            AND papf.person_id = paam.person_id
+                            AND hpb.person_id = papf.person_id
+                            AND papf.person_id = ppnf.person_id
+                            AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+                            AND paam.assignment_status_type = 'ACTIVE'
+                            AND paam.effective_latest_change = 'Y'
+                            AND paam.primary_flag = 'Y'
+                            AND hap.position_id (+) = paam.position_id
+                            AND haouf.organization_id = paam.legal_entity_id
+                            AND haouf.organization_id = houcf.organization_id
+                            AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                            AND houcf.classification_code = 'HCM_LEMP'
+                            AND hpb.document_type_id = hdtl.document_type_id
+                            AND hdtl.document_type = 'Digital signatory Masters'
+                            AND hpb.documents_of_record_id = fad.pk1_value
+                            AND fad.document_id = fdt.document_id
+                            AND fdt.language = 'US'
+                            AND fad.entity_name = 'HR_DOCUMENTS_OF_RECORD'
+                            AND ppnf.name_type = 'GLOBAL'
+                            AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                    ) approval
+                WHERE
+                    1 = 1
+                    AND papf.person_id = paaf.person_id
+                    AND papf.person_id = ppnf.person_id
+                    AND ppnf.name_type = 'GLOBAL'
+                    AND papf.person_number IS NOT NULL
+                    AND paaf.primary_assignment_flag = 'Y'
+                    AND paaf.effective_latest_change = 'Y'
+                    AND paaf.action_code = 'PROMOTION'
+                    AND paaf.organization_id = haou.organization_id
+                    AND paaf.business_unit_id = hou.organization_id
+                    AND paaf.legal_entity_id = hle.organization_id (+)
+                    AND hle.status = 'A'
+                    AND hle.classification_code = 'HCM_LEMP'
+                    AND paaf.location_id = loc.location_id (+)
+                    AND paaf.position_id = hp.position_id (+)
+                    AND trunc(SYSDATE) BETWEEN hp.effective_start_date AND hp.effective_end_date
+                    AND paaf.grade_id = pg.grade_id
+                    AND paaf.assignment_id = cmp.assignment_id
+                    AND paaf.assignment_id = cmp1.assignment_id
+                    AND ( cmp.date_from - 1 ) = cmp1.date_to (+)
+                    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN hle.effective_start_date AND hle.effective_end_date
+                    AND upper(hle.name) = approval.legal_entity
+                    AND hle.name = nvl(:p_legal_employer, hle.name)
+                    AND hou.name = nvl(:p_business_unit, hou.name)
+                    AND papf.person_number = nvl(:p_person_number, papf.person_number)
+                    AND ppnf.display_name = nvl(:p_employee_name, ppnf.display_name)
+                UNION
+                SELECT DISTINCT
+                    TO_CHAR(SYSDATE, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE=ENGLISH') sys_date,
+                    initcap(ppnf.title)
+                    || ' '
+                    || ppnf.display_name AS employee_name,
+                    hp.name              AS designation,
+                    papf.person_number   AS employee_code,
+                    haou.name            AS department,
+                    hle.name             AS company_name,
+                    (
+                        SELECT DISTINCT
+                            flv.meaning
+                        FROM
+                            fnd_lookup_values flv
+                        WHERE
+                            flv.lookup_code (+) = nvl(loc.country, paaf.legislation_code)
+                            AND flv.lookup_type = 'HZ_DOMAIN_SUFFIX_LIST'
+                            AND ROWNUM = 1
+                    ) AS location,
+                    (
+                        CASE
+                            WHEN ppnf.first_name IS NULL THEN
+                                ppnf.last_name
+                            ELSE
+                                ppnf.first_name
+                        END
+                    ) AS first_name_of_employee,
+                    'Subject - Salary Increment' AS subject,
+                    NULL AS new_position,
+                    TO_CHAR(cmp.date_from, 'DD/MM/YYYY') AS effective_from_date,
+                    NULL AS title,
+                    'Salary Structure' AS salary_structure,
+                    'Components' AS components,
+                    NULL AS probation_month,
+                    cmp1.salary_amount   AS previous_amount,
+                    cmp.salary_amount    AS new_amount,
+                    cmp.annual_salary    AS total_salary,
+                    approval.approver_number,
+                    approval.approver_name,
+                    approval.approver_designation,
+                    approval.legal_entity,
+                    approval.approver_signatory,
+                    paaf.assignment_id
+                FROM
+                    per_all_people_f            papf,
+                    dual,
+                    per_all_assignments_f       paaf,
+                    per_person_names_f          ppnf,
+                    hr_all_organization_units   haou,
+                    hr_all_organization_units   hou,
+                    hr_legal_entities           hle,
+                    per_locations               loc,
+                    hr_all_positions            hp,
+                    cmp_salary                  cmp,
+                    cmp_salary                  cmp1,
+                    cmp_asg_salary_v            casv,
+                    (
+                        SELECT
+                            papf.person_number          approver_number,
+                            fur.row_low_range_or_name   legal_entity,
+                            ppnf.display_name           approver_name,
+                            fdt.dm_version_number       document_id,
+                            fdt.dm_document_id          ucmfile,
+                            hpb.dei_attribute31         approver_signatory,
+                            haouf.name                  approver_company,
+                            hap.name                    approver_designation
+                        FROM
+                            ff_user_tables                  fut,
+                            ff_user_columns                 fuc,
+                            ff_user_columns_tl              fuct,
+                            ff_user_rows_f                  fur,
+                            ff_user_column_instances_f      fuci,
+                            per_all_people_f                papf,
+                            per_all_assignments_m           paam,
+                            per_person_names_f              ppnf,
+                            hr_all_positions                hap,
+                            hr_documents_of_record          hpb,
+                            hr_document_types_tl            hdtl,
+                            fnd_attached_documents          fad,
+                            fnd_documents_tl                fdt,
+                            hr_org_unit_classifications_f   houcf,
+                            hr_all_organization_units_vl    haouf
+                        WHERE
+                            fut.user_table_id = fuc.user_table_id
+                            AND fuc.user_column_id = fuct.user_column_id
+                            AND fut.user_table_id = fur.user_table_id
+                            AND fuc.user_column_id = fuci.user_column_id
+                            AND fur.user_row_id = fuci.user_row_id
+                            AND fut.base_user_table_name = 'ALS_SIGNATORIES'
+                            AND fuci.value = papf.person_number
+                            AND papf.person_id = paam.person_id
+                            AND hpb.person_id = papf.person_id
+                            AND papf.person_id = ppnf.person_id
+                            AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+                            AND paam.assignment_status_type = 'ACTIVE'
+                            AND paam.effective_latest_change = 'Y'
+                            AND paam.primary_flag = 'Y'
+                            AND hap.position_id (+) = paam.position_id
+                            AND haouf.organization_id = paam.legal_entity_id
+                            AND haouf.organization_id = houcf.organization_id
+                            AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                            AND houcf.classification_code = 'HCM_LEMP'
+                            AND hpb.document_type_id = hdtl.document_type_id
+                            AND hdtl.document_type = 'Digital signatory Masters'
+                            AND hpb.documents_of_record_id = fad.pk1_value
+                            AND fad.document_id = fdt.document_id
+                            AND fdt.language = 'US'
+                            AND fad.entity_name = 'HR_DOCUMENTS_OF_RECORD'
+                            AND ppnf.name_type = 'GLOBAL'
+                            AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                    ) approval
+                WHERE
+                    1 = 1
+                    AND papf.person_id = paaf.person_id
+                    AND papf.person_id = ppnf.person_id
+                    AND ppnf.name_type = 'GLOBAL'
+                    AND papf.person_number IS NOT NULL
+                    AND paaf.primary_assignment_flag = 'Y'
+                    AND paaf.effective_latest_change = 'Y'
+                    AND paaf.organization_id = haou.organization_id
+                    AND paaf.business_unit_id = hou.organization_id
+                    AND paaf.legal_entity_id = hle.organization_id (+)
+                    AND hle.status = 'A'
+                    AND hle.classification_code = 'HCM_LEMP'
+                    AND paaf.location_id = loc.location_id (+)
+                    AND paaf.position_id = hp.position_id (+)
+                    AND trunc(SYSDATE) BETWEEN hp.effective_start_date AND hp.effective_end_date
+                    AND paaf.assignment_id = cmp.assignment_id
+                    AND paaf.assignment_id = cmp1.assignment_id
+                    AND ( cmp.date_from - 1 ) = cmp1.date_to (+)
+                    AND paaf.assignment_id = casv.assignment_id
+                    AND casv.action_name = 'Change Salary'
+                    AND nvl(casv.action_reason, 'NULL') NOT IN 'Probation Confirmation'
+                    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN hle.effective_start_date AND hle.effective_end_date
+                    AND upper(hle.name) = approval.legal_entity
+                    AND hle.name = nvl(:p_legal_employer, hle.name)
+                    AND hou.name = nvl(:p_business_unit, hou.name)
+                    AND papf.person_number = nvl(:p_person_number, papf.person_number)
+                    AND ppnf.display_name = nvl(:p_employee_name, ppnf.display_name)
+                UNION
+                SELECT DISTINCT
+                    TO_CHAR(SYSDATE, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE=ENGLISH') sys_date,
+                    initcap(ppnf.title)
+                    || ' '
+                    || ppnf.display_name AS employee_name,
+                    hp.name              AS designation,
+                    papf.person_number   AS employee_code,
+                    haou.name            AS department,
+                    hle.name             AS company_name,
+                    (
+                        SELECT DISTINCT
+                            flv.meaning
+                        FROM
+                            fnd_lookup_values flv
+                        WHERE
+                            flv.lookup_code (+) = nvl(loc.country, paaf.legislation_code)
+                            AND flv.lookup_type = 'HZ_DOMAIN_SUFFIX_LIST'
+                            AND ROWNUM = 1
+                    ) AS location,
+                    (
+                        CASE
+                            WHEN ppnf.first_name IS NULL THEN
+                                ppnf.last_name
+                            ELSE
+                                ppnf.first_name
+                        END
+                    ) AS first_name_of_employee,
+                    'Subject -Salary Increment(Probationary Confirmation)' AS subject,
+                    NULL AS new_position,
+                    TO_CHAR(casv.date_from, 'DD/MM/YYYY') AS effective_from_date,
+                    NULL AS title,
+                    'Salary Structure' AS salary_structure,
+                    'Components' AS components
+	   --,PAAF.PROBATION_PERIOD AS Probation_month
+                    ,
+                    (
+                        CASE
+                            WHEN paaf.probation_period = 180 THEN
+                                6
+                            ELSE
+                                paaf.probation_period
+                        END
+                    ) AS probation_month,
+                    cmp1.salary_amount   AS previous_amount,
+                    cmp.salary_amount    AS new_amount,
+                    cmp.annual_salary    AS total_salary,
+                    approval.approver_number,
+                    approval.approver_name,
+                    approval.approver_designation,
+                    approval.legal_entity,
+                    approval.approver_signatory,
+                    paaf.assignment_id
+                FROM
+                    per_all_people_f            papf,
+                    dual,
+                    per_all_assignments_f       paaf,
+                    per_person_names_f          ppnf,
+                    hr_all_organization_units   haou,
+                    hr_all_organization_units   hou,
+                    hr_legal_entities           hle,
+                    per_locations               loc,
+                    hr_all_positions            hp,
+                    cmp_salary                  cmp,
+                    cmp_salary                  cmp1,
+                    cmp_asg_salary_v            casv,
+                    (
+                        SELECT
+                            papf.person_number          approver_number,
+                            fur.row_low_range_or_name   legal_entity,
+                            ppnf.display_name           approver_name,
+                            fdt.dm_version_number       document_id,
+                            fdt.dm_document_id          ucmfile,
+                            hpb.dei_attribute31         approver_signatory,
+                            haouf.name                  approver_company,
+                            hap.name                    approver_designation
+                        FROM
+                            ff_user_tables                  fut,
+                            ff_user_columns                 fuc,
+                            ff_user_columns_tl              fuct,
+                            ff_user_rows_f                  fur,
+                            ff_user_column_instances_f      fuci,
+                            per_all_people_f                papf,
+                            per_all_assignments_m           paam,
+                            per_person_names_f              ppnf,
+                            hr_all_positions                hap,
+                            hr_documents_of_record          hpb,
+                            hr_document_types_tl            hdtl,
+                            fnd_attached_documents          fad,
+                            fnd_documents_tl                fdt,
+                            hr_org_unit_classifications_f   houcf,
+                            hr_all_organization_units_vl    haouf
+                        WHERE
+                            fut.user_table_id = fuc.user_table_id
+                            AND fuc.user_column_id = fuct.user_column_id
+                            AND fut.user_table_id = fur.user_table_id
+                            AND fuc.user_column_id = fuci.user_column_id
+                            AND fur.user_row_id = fuci.user_row_id
+                            AND fut.base_user_table_name = 'ALS_SIGNATORIES'
+                            AND fuci.value = papf.person_number
+                            AND papf.person_id = paam.person_id
+                            AND hpb.person_id = papf.person_id
+                            AND papf.person_id = ppnf.person_id
+                            AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+                            AND paam.assignment_status_type = 'ACTIVE'
+                            AND paam.effective_latest_change = 'Y'
+                            AND paam.primary_flag = 'Y'
+                            AND hap.position_id (+) = paam.position_id
+                            AND haouf.organization_id = paam.legal_entity_id
+                            AND haouf.organization_id = houcf.organization_id
+                            AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                            AND houcf.classification_code = 'HCM_LEMP'
+                            AND hpb.document_type_id = hdtl.document_type_id
+                            AND hdtl.document_type = 'Digital signatory Masters'
+                            AND hpb.documents_of_record_id = fad.pk1_value
+                            AND fad.document_id = fdt.document_id
+                            AND fdt.language = 'US'
+                            AND fad.entity_name = 'HR_DOCUMENTS_OF_RECORD'
+                            AND ppnf.name_type = 'GLOBAL'
+                            AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                    ) approval
+                WHERE
+                    1 = 1
+                    AND papf.person_id = paaf.person_id
+                    AND papf.person_id = ppnf.person_id
+                    AND ppnf.name_type = 'GLOBAL'
+                    AND papf.person_number IS NOT NULL
+                    AND paaf.primary_assignment_flag = 'Y'
+                    AND paaf.effective_latest_change = 'Y'
+                    AND paaf.organization_id = haou.organization_id
+                    AND paaf.business_unit_id = hou.organization_id
+                    AND paaf.legal_entity_id = hle.organization_id (+)
+                    AND hle.status = 'A'
+                    AND hle.classification_code = 'HCM_LEMP'
+                    AND paaf.location_id = loc.location_id (+)
+                    AND paaf.position_id = hp.position_id (+)
+                    AND trunc(SYSDATE) BETWEEN hp.effective_start_date AND hp.effective_end_date
+                    AND paaf.assignment_id = cmp.assignment_id
+                    AND paaf.assignment_id = cmp1.assignment_id
+                    AND ( cmp.date_from - 1 ) = cmp1.date_to (+)
+                    AND paaf.assignment_id = casv.assignment_id
+                    AND ( casv.action_name = 'Change Salary'
+                          AND casv.action_reason = 'Probation Confirmation' )
+                    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+                    AND trunc(SYSDATE) BETWEEN hle.effective_start_date AND hle.effective_end_date
+                    AND upper(hle.name) = approval.legal_entity
+                    AND hle.name = nvl(:p_legal_employer, hle.name)
+                    AND hou.name = nvl(:p_business_unit, hou.name)
+                    AND papf.person_number = nvl(:p_person_number, papf.person_number)
+                    AND ppnf.display_name = nvl(:p_employee_name, ppnf.display_name)
+            )
+    )
+WHERE
+    1 = 1
+    AND ( subject = :report_type
+          OR :report_type IS NULL )
+ORDER BY
+    subject,
+    employee_code ASC
+    
+    
+    ========================================= DS 2 (SAL_COMP) ================================
+    
+    ----SAL COMPONENTS------------------------
+SELECT
+    paaf.assignment_id,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Basic salary'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_basic_salary,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Basic salary'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_basic_salary,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Air ticket Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_air_ticket_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Air ticket Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_air_ticket_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Guaranteed Bonus'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_guaranteed_bonus,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Guaranteed Bonus'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_guaranteed_bonus,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Car Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_car_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Car Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_car_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Living Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_living_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Living Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_living_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Food Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_food_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Food Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_food_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Furniture Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_fur_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Furniture Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_fur_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Housing Rent allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_hra,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Housing Rent allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_hra,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Mobile Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_mob_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Mobile Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_mob_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Other Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_other_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Other Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_other_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Special allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_spec_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Special allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_spec_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Telephone Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_tele_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Telephone Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_tele_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Transport allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_trans_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Transport allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_trans_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Utility Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_uti_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Utility Allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_uti_allow,
+    (
+        SELECT
+            cas.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas.component_name = 'Variable allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS new_var_allow,
+    (
+        SELECT
+            cas1.rate_amount
+        FROM
+            cmp_asg_salary_simple_cmpts_v   cas,
+            cmp_asg_salary_simple_cmpts_v   cas1
+        WHERE
+            1 = 1
+            AND paaf.assignment_id = cas.assignment_id
+            AND paaf.assignment_id = cas1.assignment_id
+            AND cas1.component_name = 'Variable allowance'
+            AND ( cas.date_from - 1 ) = cas1.date_to (+)
+            AND paaf.primary_assignment_flag = 'Y'
+            AND paaf.effective_latest_change = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND ROWNUM = 1
+    ) AS prev_var_allow
+FROM
+    per_all_assignments_f paaf
+WHERE
+    1 = 1
+    AND paaf.primary_assignment_flag = 'Y'
+    AND paaf.effective_latest_change = 'Y'
+    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
