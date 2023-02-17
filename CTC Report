@@ -1,0 +1,873 @@
+SELECT
+    person_number,
+    display_name,
+    legal_entity,
+    designation,
+    department,
+    business_unit_name,
+    training_cost,
+    visa_cost,
+    staff_uniform_cost,
+    provision_of_labour_camp,
+    joining_date,
+    basic_salary,
+    housing_rent_allowance,
+    ora_overall_salary,
+    department_costing,
+    provision_fixed_asset_depreciation,
+    eosb,
+    insurance,
+    leave_liability,
+    bonus_provision,
+    employer_social_insurance,
+    transport_allowance,
+    air_ticket_allowance,
+    insurance_commission
+FROM
+    (
+        SELECT
+            papf.person_number   person_number,
+            ppnf.display_name    display_name,
+            xep.name             legal_entity,
+            hap.name             designation,
+            dep.name             department,
+            haou.name            business_unit_name,
+            round((nvl(paam.ass_attribute_number3, 0) / 12), 2) training_cost,
+            round((nvl(paam.ass_attribute_number2, 0) / 12), 2) visa_cost,
+            round((nvl(paam.ass_attribute_number4, 0) / 12), 2) staff_uniform_cost,
+            nvl(DECODE(paam.ass_attribute9, 'Y', 'Yes', 'N', 'No', NULL), 0) provision_of_labour_camp,
+            TO_CHAR(papf.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE=AMERICAN') joining_date,
+            nvl((
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs, cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_BASIC'
+                    AND ROWNUM = 1
+            ), 0) basic_salary,
+            nvl((
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs, cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_HOUSING_ALLOWANCE'
+                    AND ROWNUM = 1
+            ), 0) housing_rent_allowance,
+            nvl((
+                SELECT
+                    cssc.amount
+                FROM
+                    cmp_salary                  cs, cmp_salary_simple_compnts   cssc
+                WHERE
+                    cs.person_id = papf.person_id
+                    AND cs.assignment_id = paam.assignment_id
+                    AND cs.salary_id = cssc.salary_id
+                    AND salary_approved = 'Y'
+                    AND cs.date_to > SYSDATE
+                    AND component_code = 'ORA_OVERALL_SALARY'
+                    AND ROWNUM = 1
+            ), 0) ora_overall_salary,
+            (
+                SELECT
+                    pcaa.segment3
+                    || '-'
+                    || a1.description
+                FROM
+                    fnd_flex_values_vl               a1,
+                    hr_all_organization_units_f_vl   org,
+                    pay_cost_allocations_f           pca,
+                    pay_cost_alloc_accounts          pcaa
+                WHERE
+                    org.organization_id = paam.organization_id
+                    AND pca.source_id = org.organization_id
+                    AND org.effective_start_date BETWEEN pca.effective_start_date AND pca.effective_end_date
+                    AND pca.cost_allocation_record_id = pcaa.cost_allocation_record_id
+                    AND a1.flex_value = pcaa.segment3
+                    AND a1.flex_value_set_id IN (
+                        SELECT
+                            flex_value_set_id
+                        FROM
+                            fnd_id_flex_segments
+                        WHERE
+                            application_id = 101
+                            AND id_flex_code = 'GL#'
+                            AND enabled_flag = 'Y'
+                            AND application_column_name = 'SEGMENT3'
+                    )
+            ) AS department_costing,
+            nvl((
+                SELECT
+                    amount
+                FROM
+                    (
+                        SELECT
+                            fdd.period_counter, fdd.deprn_amount amount, fdh.assigned_to
+                        FROM
+                            fa_deprn_detail           fdd, fa_additions_vl           fa, fa_distribution_history   fdh
+                        WHERE
+                            fdd.asset_id = fa.asset_id
+                            AND fa.asset_id = fdh.asset_id
+                            AND fdh.assigned_to = papf.person_id
+--and rownum =1
+                        ORDER BY
+                            fdd.deprn_amount DESC
+                    )
+                WHERE
+                    ROWNUM < 2
+            ), 0) provision_fixed_asset_depreciation,
+            nvl(gradutiy.balance_value1, 0) eosb,
+            nvl(insurance_provision.balance_value4, 0) insurance,
+            nvl(anual_leave.balance_value, 0) leave_liability,
+            nvl(bonus.balance_value3, 0) bonus_provision,
+            nvl(employer_social.balance_value2, 0) employer_social_insurance,
+            nvl(transport_allowance.balance_value1t, 0) transport_allowance,
+            nvl(air_ticket.balance_value1a, 0) air_ticket_allowance,
+            nvl(insurance_commission.balance_value6, 0) insurance_commission
+        FROM
+            per_all_people_f            papf,
+            per_person_names_f          ppnf,
+            per_persons                 pp,
+            per_all_assignments_m       paam,
+            hr_legal_entities           le,
+            hr_all_organization_units   dep,
+            xle_entity_profiles         xep,
+            hr_all_organization_units   haou,
+            hr_all_positions            hap,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value1,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Gratuity Processing Monthly'
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+            ) gradutiy,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value4,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Insurance Provision'
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+            ) insurance_provision,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name,
+                    ptp.end_date          end_date,
+                    ptp.period_name
+                    || ' '
+                    || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                    || ' '
+                    || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') from_dt
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Annual Leave Element Liability'
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+            ) anual_leave,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value3,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Bonus Provision'
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+            ) bonus,
+            (
+                SELECT DISTINCT
+                    papf1.person_id,
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value2,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name,
+                    ptp.end_date          end_date,
+                    ptp.period_name
+                    || ' '
+                    || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                    || ' '
+                    || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') from_dt
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type = 'R'
+                    AND pbd.base_dimension_name = 'Core Relationship Run'
+                    AND pbtv.base_balance_name = 'Employer Social Insurance'
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+            ) employer_social,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value1t,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Transport Allowance'
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+            ) transport_allowance,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value1a,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Air Ticket Monthly Provision'
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+            ) air_ticket,
+            (
+                SELECT DISTINCT
+                    papf1.person_number   person_number,
+                    pni.national_identifier_number,
+                    prb.balance_value     balance_value6,
+                    ppa.effective_date,
+                    pbtv.balance_name,
+                    pbd.base_dimension_name
+                FROM
+                    per_all_people_f           papf1,
+                    per_national_identifiers   pni,
+                    per_periods_of_service     ppos,
+                    per_all_assignments_f      paaf,
+                    pay_payroll_assignments    ppasg,
+                    pay_pay_relationships_dn   pprd,
+                    pay_payroll_rel_actions    ppra,
+                    pay_run_results            prr,
+                    pay_run_result_values      prrv,
+                    pay_input_values_f         pivf,
+                    pay_balance_feeds_f        pbf,
+                    pay_balance_types_vl       pbtv,
+                    pay_payroll_actions        ppa,
+                    pay_all_payrolls_f         prl,
+                    pay_run_balances           prb,
+                    pay_defined_balances       pdb,
+                    pay_balance_dimensions     pbd,
+                    pay_time_periods           ptp
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN papf1.effective_start_date AND papf1.effective_end_date
+                    AND papf1.primary_nid_id = pni.national_identifier_id (+)
+                    AND pni.national_identifier_type (+) = 'SSN'
+                    AND ppos.person_id = papf1.person_id
+                    AND paaf.person_id = ppos.person_id
+                    AND paaf.period_of_service_id = ppos.period_of_service_id
+                    AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+                    AND paaf.assignment_id = ppasg.hr_assignment_id
+                    AND paaf.work_terms_assignment_id = ppasg.hr_term_id
+                    AND trunc(SYSDATE) BETWEEN ppasg.start_date AND ppasg.end_date
+                    AND ppasg.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND trunc(SYSDATE) BETWEEN pprd.start_date AND pprd.end_date
+                    AND ppra.payroll_relationship_id = pprd.payroll_relationship_id
+                    AND ppra.payroll_relationship_id = ppasg.payroll_relationship_id
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prrv.run_result_id = prr.run_result_id
+                    AND pivf.input_value_id = prrv.input_value_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND pbtv.balance_type_id = pbf.balance_type_id
+                    AND pbf.input_value_id = pivf.input_value_id
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND prl.payroll_id = ppa.payroll_id
+                    AND prb.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND prb.payroll_rel_action_id = ppra.payroll_rel_action_id
+                    AND trunc(prb.effective_date) = trunc(ppa.effective_date)
+                    AND pdb.defined_balance_id = prb.defined_balance_id
+                    AND pdb.balance_type_id = pbtv.balance_type_id
+                    AND pdb.balance_dimension_id = pbd.balance_dimension_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND pbd.base_dimension_name = 'Core Assignment Run'
+                    AND pbtv.base_balance_name = 'Insurance Commission'
+                    AND ptp.time_period_id = ppa.earn_time_period_id
+                    AND ppos.actual_termination_date IS NULL
+                    AND ptp.period_name
+                        || ' '
+                        || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                        || ' '
+                        || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.period_name
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .start_date,
+                                                                                                                     'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     )
+                                                                                                                     || ' '
+                                                                                                                     || TO_CHAR(ptp
+                                                                                                                     .end_date, 'DD-Mon-YYYY'
+                                                                                                                     , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                     ))
+            ) insurance_commission
+        WHERE
+            1 = 1
+            AND papf.person_id = ppnf.person_id (+)
+            AND papf.person_id = pp.person_id
+            AND pp.person_id (+) = paam.person_id
+            AND paam.legal_entity_id = le.organization_id (+)
+            AND trunc(SYSDATE) BETWEEN le.effective_start_date AND le.effective_end_date
+            AND le.legal_entity_id = xep.legal_entity_id (+)
+            AND paam.organization_id = dep.organization_id (+)
+            AND le.status = 'A'
+            AND le.classification_code = 'HCM_LEMP'
+            AND paam.primary_flag = 'Y'
+            AND ppnf.name_type = 'GLOBAL'
+            AND trunc(paam.effective_end_date) > trunc(SYSDATE)
+            AND le.organization_id = haou.organization_id (+)
+            AND paam.position_id = hap.position_id
+            AND hap.active_status (+) = 'A'
+            AND papf.person_number = gradutiy.person_number (+)
+            AND papf.person_number = insurance_provision.person_number (+)
+            AND papf.person_number = anual_leave.person_number (+)
+            AND papf.person_number = bonus.person_number (+)
+            AND papf.person_number = employer_social.person_number (+)
+            AND papf.person_number = transport_allowance.person_number (+)
+            AND papf.person_number = air_ticket.person_number (+)
+            AND papf.person_number = insurance_commission.person_number (+)
+            AND dep.name = nvl(:p_department, dep.name)
+            AND haou.name = nvl(:p_business_unit, haou.name)
+            AND xep.name = nvl(:p_legal_entity, xep.name)
+--and papf.person_number='100052'
+    )
+WHERE
+    eosb <> 0
+    OR leave_liability <> 0
+GROUP BY
+    person_number,
+    display_name,
+    legal_entity,
+    designation,
+    department,
+    business_unit_name,
+    training_cost,
+    visa_cost,
+    staff_uniform_cost,
+    provision_of_labour_camp,
+    joining_date,
+    basic_salary,
+    housing_rent_allowance,
+    ora_overall_salary,
+    department_costing,
+    provision_fixed_asset_depreciation,
+    eosb,
+    insurance,
+    leave_liability,
+    bonus_provision,
+    employer_social_insurance,
+    transport_allowance,
+    air_ticket_allowance,
+    insurance_commission
+ORDER BY
+    person_number
