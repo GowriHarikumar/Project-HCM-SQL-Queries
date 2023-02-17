@@ -1,0 +1,447 @@
+=============================== DS 1 (POSTING_DM) ==================================
+
+SELECT
+    bu,
+    full_name,
+    person_number,
+    organization,
+    designation,
+    division,
+    department,
+    cost_centre,
+    basic_salary,
+    air_ticket_provision,
+    bonus_expenses
+--,BONUS
+    ,
+    salary_payable
+-- ,distributed_element
+    ,
+    debit,
+    credit
+--,BALANCE_OR_COST
+--,LEAVE_EXPENSES
+    ,
+    eosb_expenses,
+    ot_expenses,
+    eosb_provision_cr,
+    bonus_provision_cr,
+    staff_deduct
+FROM
+    (
+        SELECT
+            hou.name bu,
+            ppnf.full_name,
+            papf.person_number,
+            (
+                SELECT
+                    name
+                FROM
+                    hr_all_organization_units
+                WHERE
+                    organization_id = papf.business_group_id
+            ) organization,
+            (
+                SELECT
+                    hap.name
+                FROM
+                    hr_all_positions hap
+                WHERE
+                    paam.position_id = hap.position_id (+)
+                    AND hap.active_status = 'A'
+            ) designation,
+            (
+                SELECT
+                    haouf.name
+                FROM
+                    hr_org_unit_classifications_f   houcf,
+                    hr_all_organization_units_vl    haouf
+                WHERE
+                    1 = 1
+                    AND haouf.organization_id = (
+                        SELECT
+                            organization_id
+                        FROM
+                            per_org_tree_node_v
+                        WHERE
+                            tree_structure_code = 'PER_ORG_TREE_STRUCTURE'
+                            AND tree_code = 'ALS_ORGANIZATION_TREE'
+                            AND depth = 1
+                            AND organization_id = (
+                                SELECT
+                                    parent_organization_id
+                                FROM
+                                    per_org_tree_node_v
+                                WHERE
+                                    tree_structure_code = 'PER_ORG_TREE_STRUCTURE'
+                                    AND tree_code = 'ALS_ORGANIZATION_TREE'
+                                    AND depth = 2
+                                    AND organization_id = paam.legal_entity_id
+                            )
+                    )
+                    AND haouf.organization_id = houcf.organization_id
+                    AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+            ) division,
+            (
+                SELECT
+                    haouf.name
+                FROM
+                    hr_org_unit_classifications_f   houcf,
+                    hr_all_organization_units_vl    haouf
+                WHERE
+                    haouf.organization_id = paam.organization_id
+                    AND haouf.organization_id = houcf.organization_id
+                    AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                    AND houcf.classification_code = 'DEPARTMENT'
+            ) department,
+            (
+                SELECT
+                    pcaa.segment3
+                FROM
+                    hr_all_organization_units_f_vl   org,
+                    pay_cost_allocations_f           pca,
+                    pay_cost_alloc_accounts          pcaa
+                WHERE
+                    org.organization_id = paam.organization_id
+                    AND pca.source_id = org.organization_id
+                    AND org.effective_start_date BETWEEN pca.effective_start_date AND pca.effective_end_date
+                    AND pca.cost_allocation_record_id = pcaa.cost_allocation_record_id
+                    AND ROWNUM = 1
+            ) AS cost_centre,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '711301',
+                        '811101',
+                        '511309'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) basic_salary
+  --,PPRA.PAYROLL_REL_ACTION_ID
+            ,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '711310'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) air_ticket_provision,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '511310'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) bonus_expenses,
+            (
+                SELECT
+                    SUM(
+                        CASE
+                            WHEN pec.base_classification_name <> 'Standard Earnings' THEN
+                                (to_number(prrv.result_value) * - 1)
+                            ELSE
+                                to_number(prrv.result_value)
+                        END
+                    ) result_value
+                FROM
+                    per_all_people_f             papf,
+                    per_all_assignments_m        paam,
+                    pay_payroll_assignments      ppas,
+                    pay_payroll_rel_actions      ppra,
+                    pay_payroll_actions          ppa,
+                    pay_time_periods             ptp,
+                    pay_all_payrolls_f           pay,
+                    pay_run_results              prr,
+                    pay_element_types_vl         pet,
+                    pay_ele_classifications_vl   pec,
+                    pay_run_result_values        prrv,
+                    pay_input_values_vl          piv
+                WHERE
+                    1 = 1
+                    AND trunc(SYSDATE) BETWEEN trunc(papf.effective_start_date) AND trunc(papf.effective_end_date)
+                    AND papf.person_id = paam.person_id
+                    AND papf.person_id = ppnf.person_id
+--And PAPF.PERSON_NUMBER = '80003'
+                    AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+                    AND paam.assignment_type IN (
+                        'E',
+                        'P'
+                    )
+                    AND paam.assignment_id = ppas.hr_assignment_id
+                    AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+                    AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+                    AND ppra.action_status = 'C'
+                    AND ppra.run_type_id IS NOT NULL
+                    AND ppra.payroll_action_id = ppa.payroll_action_id
+                    AND ppa.action_type IN (
+                        'R',
+                        'Q'
+                    )
+                    AND ppa.action_status = 'C'
+                    AND ppa.payroll_id = ptp.payroll_id
+                    AND ptp.period_category = 'E'
+                    AND ptp.status = 'O'
+--And PTP.PERIOD_NAME = '8 2022 Monthly Calendar'
+--And ((PTP.PERIOD_NAME in (:P_PERIOD)) Or (Least(:P_PERIOD) IS NULL))
+                    AND ( ( ptp.time_period_id IN (
+                        :p_time_period
+                    ) )
+                          OR ( least(:p_time_period) IS NULL ) )
+--And PTP.TIME_PERIOD_ID = :P_PERIOD
+--And ((PAY.PAYROLL_NAME in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+--And ((PAY.PAYROLL_ID in (:P_PAYROLL)) Or (Least(:P_PAYROLL) IS NULL))
+                    AND pay.payroll_id = :p_payroll
+                    AND ptp.payroll_id = pay.payroll_id
+                    AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+                    AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+                    AND ppra.payroll_rel_action_id = prr.payroll_rel_action_id
+                    AND prr.element_type_id = pet.element_type_id
+                    AND ppa.date_earned BETWEEN pet.effective_start_date AND pet.effective_end_date
+                    AND pet.classification_id = pec.classification_id
+                    AND ppa.date_earned BETWEEN pec.date_from AND nvl(pec.date_to, TO_DATE('12-31-4712', 'MM-DD-YYYY'))
+                    AND pec.base_classification_name IN (
+                        'Standard Earnings',
+                        'Involuntary Deductions',
+                        'Voluntary Deductions',
+                        'Social Insurance Deductions'
+                    )
+                    AND prr.run_result_id = prrv.run_result_id
+                    AND prrv.input_value_id = piv.input_value_id
+                    AND trunc(SYSDATE) BETWEEN trunc(piv.effective_start_date) AND trunc(piv.effective_end_date)
+                    AND piv.name IN (
+                        'Pay Value'
+                    )
+            ) salary_payable,
+            NULL AS debit,
+            NULL AS credit,
+            NULL AS leave_expenses,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '411101'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) eosb_expenses,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '711304',
+                        '811108'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) ot_expenses,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '711303'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) eosb_provision_cr,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '711312'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) bonus_provision_cr,
+            (
+                SELECT
+                    nvl(SUM(nvl(pcs.costed_value, 0)), 0) costed_value
+                FROM
+                    pay_costs                pcs,
+                    pay_cost_alloc_keyflex   pcak,
+                    pay_run_results          prr
+                WHERE
+                    1 = 1
+                    AND pcs.cost_allocation_keyflex_id = pcak.cost_allocation_keyflex_id
+                    AND pcs.balance_or_cost = 'C'
+                    AND pcak.segment4 IN (
+                        '511401'
+                    )
+                    AND pcs.payroll_assignment_id = ppas.payroll_assignment_id
+                    AND pcs.run_result_id = prr.run_result_id
+                    AND prr.payroll_rel_action_id = ppra.payroll_rel_action_id
+            ) staff_deduct
+        FROM
+            per_person_names_f        ppnf,
+            per_all_people_f          papf,
+            per_all_assignments_m     paam,
+            hr_operating_units        hou,
+            per_departments           pdep,
+            pay_payroll_assignments   ppas,
+            pay_payroll_rel_actions   ppra,
+            pay_payroll_actions       ppa,
+            pay_time_periods          ptp,
+            pay_all_payrolls_f        pay
+/*,PAY_RUN_RESULTS PRR*/
+        WHERE
+            1 = 1
+            AND ppnf.person_id = papf.person_id
+            AND ppnf.name_type = 'GLOBAL'
+            AND papf.person_id = paam.person_id
+            AND paam.primary_flag = 'Y'
+            AND trunc(SYSDATE) BETWEEN trunc(paam.effective_start_date) AND trunc(paam.effective_end_date)
+            AND trunc(SYSDATE) BETWEEN trunc(ppnf.effective_start_date) AND trunc(ppnf.effective_end_date)
+            AND paam.organization_id = pdep.organization_id
+            AND trunc(SYSDATE) BETWEEN trunc(nvl(pdep.effective_start_date, SYSDATE - 1)) AND trunc(nvl(pdep.effective_end_date, SYSDATE
+            + 1))
+            AND hou.name = nvl(:p_business_unit, hou.name)
+            AND pdep.name = nvl(:p_department, pdep.name)
+--AND PAPF.PERSON_NUMBER = '100092'
+            AND paam.business_unit_id = hou.organization_id
+            AND paam.assignment_id = ppas.hr_assignment_id
+            AND trunc(SYSDATE) BETWEEN trunc(ppas.start_date) AND trunc(ppas.end_date)
+            AND ppas.payroll_relationship_id = ppra.payroll_relationship_id
+            AND ppra.action_status = 'C'
+            AND ppra.run_type_id IS NOT NULL
+            AND ppra.payroll_action_id = ppa.payroll_action_id
+            AND ppa.action_type IN (
+                'R',
+                'Q'
+            )
+            AND ppa.action_status = 'C'
+            AND ppa.payroll_id = ptp.payroll_id
+            AND ptp.period_category = 'E'
+            AND ptp.status = 'O'
+            AND pay.payroll_id = nvl(:p_payroll, pay.payroll_id)
+            AND ptp.payroll_id = pay.payroll_id
+            AND ppa.date_earned BETWEEN pay.effective_start_date AND pay.effective_end_date
+            AND ppa.date_earned BETWEEN ptp.start_date AND ptp.end_date
+/*And PPRA.PAYROLL_REL_ACTION_ID = PRR.PAYROLL_REL_ACTION_ID*/
+            AND ( ( ptp.time_period_id IN (
+                :p_time_period
+            ) )
+                  OR ( least(:p_time_period) IS NULL ) )
+    )
+ /*
+ GROUP BY
+ BU
+,full_name
+,person_number
+,organization
+,designation
+,DIVISION	
+,DEPARTMENT
+,COST_CENTRE
+,BASIC_SALARY
+,AIR_TICKET_PROVISION
+,BONUS_EXPENSES
+,BONUS
+,SALARY_PAYABLE
+-- ,distributed_element
+,DEBIT
+,CREDIT
+,BALANCE_OR_COST
+,LEAVE_EXPENSES
+,EOSB_EXPENSES
+,OT_EXPENSES
+,EOSB_PROVISION_CR
+,BONUS_PROVISION_CR
+*/
+-- ORDER BY
+-- PERSON_NUMBER
+
+========================================================== DS 2 (Param) ====================================
+
+SELECT
+    (
+        SELECT
+            payroll_name
+        FROM
+            pay_all_payrolls_f
+        WHERE
+            trunc(SYSDATE) BETWEEN trunc(effective_start_date) AND trunc(effective_end_date)
+            AND payroll_id = :p_payroll
+    ) param_payroll_n,
+    (
+        SELECT
+            ptp.period_name
+        FROM
+            pay_time_periods     ptp,
+            pay_all_payrolls_f   pay
+        WHERE
+            ptp.payroll_id = pay.payroll_id
+            AND trunc(SYSDATE) BETWEEN trunc(pay.effective_start_date) AND trunc(pay.effective_end_date)
+            AND TO_CHAR(pay.payroll_id) = :p_payroll
+            AND ptp.period_category = 'E'
+            AND ptp.time_period_id = :p_time_period
+    ) param_period
+FROM
+    dual
