@@ -1,0 +1,91 @@
+select * from 
+(SELECT hou.name Legal_Entity
+,houb.name Business_Unit
+,hous.name Department_Name
+,pldft.location_name Location_Name
+,papf.person_number
+,ppnf.display_name Employee_Name
+,TO_CHAR(ppos.date_start,'DD-MON-YYYY','nls_date_language = english') DOJ
+,TO_CHAR(ppos.actual_termination_date,'DD-MON-YYYY','nls_date_language = english') DOL
+,ppnf1.display_name Supervisor_Name
+,posft.name Position_Name,
+A.DEI_ATTRIBUTE1 Absence_Type,
+to_char(to_date(substr(A.DEI_ATTRIBUTE_DATE1,1,10),'YYYY-MM-DD'),'DD-MON-YYYY' ,'nls_date_language = english') Planner_Start_Date,
+to_char(to_date(substr(A.DEI_ATTRIBUTE_DATE2,1,10),'YYYY-MM-DD'),'DD-MON-YYYY' ,'nls_date_language = english') Planner_End_Date,
+TO_CHAR(A.DEI_ATTRIBUTE_DATE3,'DD-MON-YYYY','nls_date_language = english') Absence_Start_Date,
+--to_char(to_date(substr(A.DEI_ATTRIBUTE_DATE1,1,10),'YYYY-MM-DD'),'DD-MON-YYYY' ,'nls_date_language = english')  SD2,
+TO_CHAR(A.DEI_ATTRIBUTE_DATE4,'DD-MON-YYYY','nls_date_language = english') Absence_End_Date,
+A.DEI_ATTRIBUTE_NUMBER1 Number_of_Days,
+A.DEI_ATTRIBUTE2 Remarks
+
+FROM per_all_people_f papf,
+per_periods_of_service ppos,
+per_person_names_f ppnf,
+per_all_assignments_m paam,
+hr_organization_units hou,
+hr_organization_units houb,
+hr_organization_units hous,
+per_location_details_f pldf,
+per_location_details_f_tl pldft,
+per_assignment_supervisors_f pasf,
+per_person_names_f ppnf1,
+HR_ALL_POSITIONS_F posf,
+HR_ALL_POSITIONS_F_TL posft,
+HR_DOCUMENTS_OF_RECORD A,
+HR_DOCUMENT_TYPES_B B,
+HR_DOCUMENT_TYPES_TL D
+
+WHERE papf.person_id = paam.person_id
+--AND papf.person_number = '209637'
+AND paam.period_of_service_id = ppos.period_of_service_id
+AND ppnf.person_id = papf.person_id
+AND ppnf.name_type = 'GLOBAL'
+AND paam.PRIMARY_FLAG = 'Y'
+AND paam.assignment_status_type = 'ACTIVE'
+AND pasf.person_id = papf.person_id
+AND pasf.assignment_id = paam.assignment_id
+AND pasf.MANAGER_ID = ppnf1.person_id
+AND TRUNC (SYSDATE) between pasf.effective_start_date AND pasf.effective_end_date
+AND TRUNC (SYSDATE) between ppnf1.effective_start_date AND ppnf1.effective_end_date
+AND ppnf1.name_type = 'GLOBAL'
+AND pasf.manager_type = 'LINE_MANAGER'
+AND TRUNC (SYSDATE) BETWEEN TRUNC (papf.effective_start_date)
+AND TRUNC (papf.effective_end_date)
+AND TRUNC (SYSDATE) BETWEEN TRUNC (ppnf.effective_start_date)
+AND TRUNC (ppnf.effective_end_date)
+AND TRUNC (SYSDATE) BETWEEN TRUNC (paam.effective_start_date)
+AND TRUNC (paam.effective_end_date)
+AND ppos.person_id = papf.person_id
+AND ppos.PRIMARY_FLAG = 'Y'
+AND ppos.legal_entity_id = hou.organization_id
+AND paam.business_unit_id = houb.organization_id
+AND paam.organization_id = hous.organization_id
+AND paam.location_id = pldf.location_id
+AND pldf.location_details_id = pldft.location_details_id
+AND pldft.LANGUAGE = 'US'
+AND TRUNC (SYSDATE) BETWEEN TRUNC (pldf.effective_start_date)
+AND TRUNC (pldf.effective_end_date)
+AND TRUNC (SYSDATE) BETWEEN TRUNC (pldft.effective_start_date)
+AND TRUNC (pldft.effective_end_date)
+--AND papf.person_id = '100000001242983'
+AND posf.position_id = posft.position_id
+and posf.position_id = paam.position_id
+AND TRUNC (SYSDATE) BETWEEN TRUNC (posf.effective_start_date)
+AND TRUNC (posf.effective_end_date)
+AND TRUNC (SYSDATE) BETWEEN TRUNC (posft.effective_start_date)
+AND TRUNC (posft.effective_end_date)
+AND A.DOCUMENT_TYPE_ID = B.DOCUMENT_TYPE_ID
+AND D.DOCUMENT_TYPE = 'Yearly Absence Plan'
+AND A.PERSON_ID = papf.PERSON_ID
+AND A.DOCUMENT_TYPE_ID = D.DOCUMENT_TYPE_ID
+AND D.LANGUAGE = SYS_CONTEXT('USERENV', 'LANG'))
+WHERE 1 = 1
+AND Legal_Entity = NVL(:P_LEGAL_EMPLOYEE, Legal_Entity)
+AND Business_Unit = NVL(:P_BUSINESS_UNIT, Business_Unit)
+AND Department_Name = NVL(:P_DEPARTMENT, Department_Name)
+AND Location_Name = NVL(:P_LOCATION, Location_Name)
+AND person_number = NVL(:P_EMPLOYEE_NUM, person_number)
+AND Employee_Name = NVL(:P_EMPLOYEE_NAME, Employee_Name)
+--AND Trunc(To_Date(Planner_Start_Date,'DD-MON-YYYY')) = NVL(:P_START_DATE, Trunc(To_Date(Planner_Start_Date,'DD-MON-YYYY')))
+--AND Trunc(To_Date(Planner_End_Date,'DD-MON-YYYY')) = NVL(:P_END_DATE, Trunc(To_Date(Planner_End_Date,'DD-MON-YYYY')))
+ORDER BY person_number
