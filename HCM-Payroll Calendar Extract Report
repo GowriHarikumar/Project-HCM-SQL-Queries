@@ -1,0 +1,26 @@
+SELECT
+    papf.payroll_name,
+    papf.reporting_name,
+--papf.period_type,
+--pcs.consolidation_set_name,
+    TO_CHAR(papf.first_period_end_date, 'DD-Mon-YYYY') first_period_end_date,
+    ptp.period_name,
+    TO_CHAR(ptp.start_date, 'DD-Mon-YYYY') start_date,
+    TO_CHAR(ptp.end_date, 'DD-Mon-YYYY') end_date,
+    TO_CHAR(ptp.cut_off_date, 'DD-Mon-YYYY') cut_off_date,
+    TO_CHAR(ptp.regular_earn_date, 'DD-Mon-YYYY') date_earned,
+    TO_CHAR(ptp.regular_process_date, 'DD-Mon-YYYY') payroll_run_date,
+    TO_CHAR(ptp.default_paydate, 'DD-Mon-YYYY') date_paid,
+    TO_CHAR(ptp.payslip_view_date, 'DD-Mon-YYYY') payslip_view_date
+FROM
+    pay_all_payrolls_f   papf,
+    pay_time_periods     ptp/*,
+pay_consolidation_sets pcs*/
+WHERE
+    papf.payroll_id = ptp.payroll_id
+    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+--AND papf.consolidation_set_id = pcs.consolidation_set_id
+    AND ptp.cut_off_date IS NOT NULL
+ORDER BY
+    papf.payroll_name,
+    ptp.start_date
