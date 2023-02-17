@@ -1,0 +1,239 @@
+SELECT
+    legal_entity_code,
+    business_unit_code,
+    department_code,
+    person_number,
+    display_name,
+    designation,
+    normal_ot_amount,
+    normal_ot_hour,
+    incentive_normal_amount,
+    incentive_normal_hour,
+    weekoff_ot_amount,
+    weekoff_ot_hour,
+    incentive_ph_amount,
+    incentive_ph_hour,
+    ph_ot_amount,
+    ph_ot_hour,
+    total_ot_hours,
+    total_ot_paid
+FROM
+    (
+        SELECT
+            legal_entity_code,
+            business_unit_code,
+            department_code,
+            person_number,
+            display_name,
+            designation,
+            normal_ot_amount,
+            normal_ot_hour,
+            incentive_normal_amount,
+            incentive_normal_hour,
+            weekoff_ot_amount,
+            weekoff_ot_hour,
+            incentive_ph_amount,
+            incentive_ph_hour,
+            ph_ot_amount,
+            ph_ot_hour,
+            SUM(nvl(normal_ot_hour, 0) + nvl(incentive_normal_hour, 0) + nvl(weekoff_ot_hour, 0) + nvl(incentive_ph_hour, 0) + nvl
+            (ph_ot_hour, 0)) total_ot_hours,
+            SUM(nvl(normal_ot_amount, 0) + nvl(incentive_normal_amount, 0) + nvl(weekoff_ot_amount, 0) + nvl(incentive_ph_amount,
+            0) + nvl(ph_ot_amount, 0)) total_ot_paid
+        FROM
+            (
+                SELECT
+                    legal_entity_code,
+                    business_unit_code,
+                    department_code,
+                    person_number,
+                    display_name,
+                    designation,
+                    MAX(normal_ot_amount) AS normal_ot_amount,
+                    MAX(normal_ot_hour) normal_ot_hour,
+                    MAX(incentive_normal_amount) incentive_normal_amount,
+                    MAX(incentive_normal_hour) incentive_normal_hour,
+                    MAX(weekoff_ot_amount) weekoff_ot_amount,
+                    MAX(weekoff_ot_hour) weekoff_ot_hour,
+                    MAX(incentive_ph_amount) incentive_ph_amount,
+                    MAX(incentive_ph_hour) incentive_ph_hour,
+                    MAX(ph_ot_amount) ph_ot_amount,
+                    MAX(ph_ot_hour) ph_ot_hour
+                FROM
+                    (
+                        SELECT
+                            hou.name    legal_entity_code,
+                            houb.name   business_unit_code,
+                            hous.name   department_code,
+                            papf.person_number,
+                            ppnf.display_name,
+                            hap.name    designation,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Overtime Hours Normal'
+                                         AND pivf.base_name = 'Pay Value' THEN
+                                        prrv.result_value
+                                END
+                            ) normal_ot_amount,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Overtime Hours Normal'
+                                         AND pivf.base_name = 'Hours Worked' THEN
+                                        prrv.result_value
+                                END
+                            ) normal_ot_hour,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Incentive Hours Normal'
+                                         AND pivf.base_name = 'Pay Value' THEN
+                                        prrv.result_value
+                                END
+                            ) incentive_normal_amount,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Incentive Hours Normal'
+                                         AND pivf.base_name = 'Hours Worked' THEN
+                                        prrv.result_value
+                                END
+                            ) incentive_normal_hour,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Weekoff OT'
+                                         AND pivf.base_name = 'Pay Value' THEN
+                                        prrv.result_value
+                                END
+                            ) weekoff_ot_amount,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Weekoff OT'
+                                         AND pivf.base_name = 'Hours Worked' THEN
+                                        prrv.result_value
+                                END
+                            ) weekoff_ot_hour,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Incentive Hours Holiday'
+                                         AND pivf.base_name = 'Pay Value' THEN
+                                        prrv.result_value
+                                END
+                            ) incentive_ph_amount,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Incentive Hours Holiday'
+                                         AND pivf.base_name = 'Hours Worked' THEN
+                                        prrv.result_value
+                                END
+                            ) incentive_ph_hour,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Overtime Hours Holiday'
+                                         AND pivf.base_name = 'Pay Value' THEN
+                                        prrv.result_value
+                                END
+                            ) ph_ot_amount,
+                            (
+                                CASE
+                                    WHEN patf.base_element_name = 'Overtime Hours Holiday'
+                                         AND pivf.base_name = 'Hours Worked' THEN
+                                        prrv.result_value
+                                END
+                            ) ph_ot_hour
+                        FROM
+                            hr_organization_units        hou,
+                            hr_organization_units        houb,
+                            hr_organization_units        hous,
+                            per_all_people_f             papf,
+                            per_periods_of_service       ppos,
+                            per_person_names_f           ppnf,
+                            per_all_assignments_m        paam,
+                            hr_all_positions             hap,
+                            pay_element_entries_f        paef,
+                            pay_element_types_f          patf,
+                            pay_element_entry_values_f   pevf,
+                            pay_input_values_f           pivf,
+                            pay_run_result_values        prrv,
+                            pay_run_results              prr,
+                            pay_payroll_rel_actions      prra,
+                            pay_payroll_actions          pra,
+                            pay_time_periods             ptp
+                        WHERE
+                            papf.person_id = paam.person_id
+                            AND paam.period_of_service_id = ppos.period_of_service_id
+                            AND ppnf.person_id = papf.person_id
+                            AND ppnf.name_type = 'GLOBAL'
+                            AND paam.primary_flag = 'Y'
+                            AND paam.assignment_status_type = 'ACTIVE'
+                            AND ppos.person_id = papf.person_id
+                            AND ppos.primary_flag = 'Y'
+                            AND ppos.legal_entity_id = hou.organization_id
+                            AND paam.business_unit_id = houb.organization_id
+                            AND paam.organization_id = hous.organization_id
+                            AND paam.position_id = hap.position_id (+)
+                            AND paam.person_id = papf.person_id
+                            AND paam.person_id = paef.person_id
+                            AND paef.element_type_id = patf.element_type_id
+                            AND paef.element_entry_id = pevf.element_entry_id
+                            AND pevf.input_value_id = pivf.input_value_id
+                            AND pivf.input_value_id = prrv.input_value_id
+                            AND prrv.run_result_id = prr.run_result_id
+                            AND paef.element_entry_id = prr.element_entry_id
+                            AND prr.payroll_rel_action_id = prra.payroll_rel_action_id
+                            AND pra.payroll_action_id = prra.payroll_action_id
+			-- AND PTP.PAYROLL_ID = PRA.PAYROLL_ID
+			-- AND PRA.EFFECTIVE_DATE  BETWEEN PTP.start_date AND PTP.end_date
+                            AND ptp.time_period_id = pra.earn_time_period_id
+			-- AND PTP.PERIOD_NAME =  NVL(:P_PERIOD_NAME,PTP.PERIOD_NAME)
+                            AND ptp.period_name
+                                || ' '
+                                || TO_CHAR(ptp.start_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN')
+                                || ' '
+                                || TO_CHAR(ptp.end_date, 'DD-Mon-YYYY', 'NLS_DATE_LANGUAGE= AMERICAN') = nvl(:p_period_name, ptp.
+                                period_name
+                                                                                                                             || ' '
+                                                                                                                             || TO_CHAR
+                                                                                                                             (ptp
+                                                                                                                             .start_date
+                                                                                                                             , 'DD-Mon-YYYY'
+                                                                                                                             , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                             )
+                                                                                                                             || ' '
+                                                                                                                             || TO_CHAR
+                                                                                                                             (ptp
+                                                                                                                             .end_date
+                                                                                                                             , 'DD-Mon-YYYY'
+                                                                                                                             , 'NLS_DATE_LANGUAGE= AMERICAN'
+                                                                                                                             ))
+                    )
+                WHERE
+                    1 = 1
+                    AND legal_entity_code = nvl(:p_legal_entity, legal_entity_code)
+                    AND business_unit_code = nvl(:p_business_unit, business_unit_code)
+                    AND department_code = nvl(:p_department, department_code)
+                GROUP BY
+                    legal_entity_code,
+                    business_unit_code,
+                    department_code,
+                    person_number,
+                    display_name,
+                    designation
+            )
+        GROUP BY
+            legal_entity_code,
+            business_unit_code,
+            department_code,
+            person_number,
+            display_name,
+            designation,
+            normal_ot_amount,
+            normal_ot_hour,
+            incentive_normal_amount,
+            incentive_normal_hour,
+            weekoff_ot_amount,
+            weekoff_ot_hour,
+            incentive_ph_amount,
+            incentive_ph_hour,
+            ph_ot_amount,
+            ph_ot_hour
+    )
+WHERE
+    total_ot_paid > 0
