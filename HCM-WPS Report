@@ -1,0 +1,265 @@
+WITH bank AS (
+    SELECT
+        to_number(hz_per.orig_system_reference) person_id,
+        iebc.ext_bank_account_id,
+        iebc.primary_acct_owner_name,
+        iebc.bank_account_name,
+        iebc.iban_number,
+        iebc.clear_iban,
+        iebc.bank_account_number,
+        iebc.bank_account_type,
+        iebc.bank_name,
+        iebc.bank_number,
+        iebc.bank_branch_name,
+        iebc.branch_number,
+        iebc.country_code,
+        iebc.check_digits,
+        popm.org_payment_method_name
+    FROM
+        iby_ext_bank_accounts_v          iebc,
+        pay_personal_payment_methods_f   pppm,
+        pay_org_pay_methods_vl           popm,
+        hz_parties                       hz_per
+    WHERE
+        iebc.bank_account_id = pppm.bank_account_id
+        AND popm.org_payment_method_id = pppm.org_payment_method_id
+        AND hz_per.party_id = iebc.primary_acct_owner_party_id
+        AND pppm.effective_start_date = (
+            SELECT
+                MAX(pppm2.effective_start_date)
+            FROM
+                iby_ext_bank_accounts_v          iebc2,
+                pay_personal_payment_methods_f   pppm2
+            WHERE
+                iebc2.bank_account_id = pppm2.bank_account_id
+                AND iebc2.primary_acct_owner_party_id = hz_per.party_id
+                AND pppm2.effective_start_date <= ( last_day(SYSDATE) )
+        )
+), mohre AS (
+    SELECT
+        houcf.organization_id,
+        hauft.name,
+        hoif.org_information1
+    FROM
+        hr_org_unit_classifications_f   houcf,
+        hr_all_organization_units_f     haouf,
+        hr_organization_units_f_tl      hauft,
+        hr_organization_information_f   hoif
+    WHERE
+        haouf.organization_id = houcf.organization_id
+        AND haouf.organization_id = hauft.organization_id
+        AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+        AND hauft.language = 'US'
+        AND hauft.effective_start_date = haouf.effective_start_date
+        AND hauft.effective_end_date = haouf.effective_end_date
+        AND houcf.classification_code = 'HCM_PSU'
+        AND SYSDATE BETWEEN hauft.effective_start_date AND hauft.effective_end_date
+        AND hauft.organization_id = hoif.organization_id
+        AND hoif.org_information_context = 'ORA_HRX_AE_PSU_DETAILS'
+), npay AS (
+    SELECT
+        papf.person_number           "employee number",
+        py.payroll_name              "payroll name",
+        ptp.period_name              "payroll period",
+        pcs.consolidation_set_name   "payroll set name",
+        ppa.creation_date            "payroll processes date",
+        ptp.start_date               "payroll period start date",
+        ptp.end_date                 "payroll period end date",
+        pra.payroll_relationship_id,
+        ldg.legislation_code,
+        (
+            SELECT
+                prrv.result_value * ifed.scale
+            FROM
+                pay_balance_feeds_f   ifed,
+                pay_balance_types     ibal
+            WHERE
+                ifed.input_value_id = piv.input_value_id
+                AND ifed.balance_type_id = ibal.balance_type_id
+                AND ( ibal.base_balance_name = 'Net Pay'
+                      OR ibal.base_balance_name = ldg.legislation_code || '_NET_PAY' )
+        ) net1,
+        (
+            SELECT
+                prrv.result_value * ifed.scale
+            FROM
+                pay_balance_feeds_f   ifed,
+                pay_balance_types     ibal
+            WHERE
+                ifed.input_value_id = piv.input_value_id
+                AND ifed.balance_type_id = ibal.balance_type_id
+                AND ( ibal.base_balance_name = 'Net'
+                      OR ibal.base_balance_name = ldg.legislation_code || '_NET' )
+        ) AS "net",
+        prrv.result_value,
+        ec.classification_name       AS "Element Classification",
+        ele.element_name             AS "Element Name",
+        papf.person_id
+    FROM
+        pay_payroll_actions           ppa,
+        pay_payroll_rel_actions       pra,
+        pay_assigned_payrolls_dn      apd,
+        per_all_assignments_m         paam,
+        pay_time_periods              ptp,
+        pay_rel_groups_dn             prg,
+        per_all_people_f              papf,
+        pay_all_payrolls_f            py,
+        pay_consolidation_sets        pcs,
+        pay_payroll_terms             pt,
+        pay_legislative_data_groups   ldg,
+        pay_run_results               prr,
+        pay_run_result_values         prrv,
+        pay_input_values_f            piv,
+        pay_element_types_vl          ele,
+        pay_ele_classifications_vl    ec
+    WHERE
+        1 = 1     
+						-- and papf.person_number = '100047'
+        AND pra.payroll_action_id = ppa.payroll_action_id
+        AND ppa.action_type IN (
+            'Q',
+            'R'
+        )
+        AND paam.assignment_id = prg.assignment_id
+        AND pcs.consolidation_set_id = nvl(ppa.consolidation_set_id, py.consolidation_set_id)
+        AND ptp.period_category = 'E'
+        AND prg.payroll_relationship_id = pra.payroll_relationship_id
+        AND pt.payroll_term_id = apd.payroll_term_id
+        AND py.payroll_id = apd.payroll_id
+						-- and pra.source_action_id is null
+        AND pra.source_id IS NULL
+        AND pt.hr_term_id = prg.term_id
+        AND paam.assignment_type = 'E'
+        AND paam.primary_flag = 'Y'
+        AND papf.person_id = paam.person_id
+        AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+        AND trunc(SYSDATE) BETWEEN py.effective_start_date AND py.effective_end_date
+        AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+        AND ptp.payroll_id = py.payroll_id
+        AND ppa.earn_time_period_id = ptp.time_period_id
+        AND ppa.legislative_data_group_id = ldg.legislative_data_group_id
+							--and ptp.period_name = '8 2022 Monthly Calendar'
+        AND pra.payroll_rel_action_id = prr.payroll_rel_action_id
+        AND prr.run_result_id = prrv.run_result_id
+        AND prrv.input_value_id = piv.input_value_id
+        AND ( ( ldg.legislation_code = 'US'
+                AND ( piv.base_name = 'Earnings Calculated'
+                      OR piv.base_name = 'Pay Value' ) )
+              OR ( ldg.legislation_code <> 'US'
+                   AND ( piv.reserved_input_value = 'SPECIAL_OUTPUT'
+                         OR piv.base_name = 'Pay Value' ) ) )
+        AND prr.element_type_id = ele.element_type_id
+        AND ele.classification_id = ec.classification_id
+						--and ptp.period_name = :p_period_name
+        AND ptp.time_period_id = :p_period_name
+        AND py.payroll_id = :p_payroll_name
+)
+SELECT
+    papf.person_number       emp_no,
+    ppnf.display_name        emp_name,
+    hle.name                 le_name,
+    haou.name                bu_name,
+    hou.name                 dep_name,
+    bank.branch_number       agt_id,
+    bank.clear_iban          iban_number,
+    papf.person_id,
+    paam.assignment_id,
+    bank.bank_account_number,
+    bank.bank_number,
+    bank.bank_name,
+    bank.bank_branch_name,
+    pprd.person_id           prid,
+    prf.rel_information3     empee_id,
+    aapf.reporting_name      payroll_name,
+    aapf.payroll_id,
+    ptp.period_name,
+    TO_CHAR(trunc(ptp.end_date, 'MM'), 'DD-Mon-YYYY', 'nls_date_language=english') AS start_date,
+    TO_CHAR(last_day(ptp.end_date), 'DD-Mon-YYYY', 'nls_date_language=english') AS end_date
+		--,to_char(ptp.start_date, 'DD-Mon-YYYY' , 'nls_date_language=english') start_date
+		--,to_char(ptp.end_date, 'DD-Mon-YYYY' , 'nls_date_language=english') end_date
+    ,
+    TO_CHAR(ptp.cut_off_date, 'DD-Mon-YYYY', 'nls_date_language=english') cut_off_date,
+    mohre.org_information1   emper_id,
+    SUM(nvl(npay.net1, 0)) net_sal
+FROM
+    per_all_people_f            papf,
+    per_person_names_f          ppnf,
+    per_all_assignments_m       paam,
+    hr_legal_entities           hle,
+    hr_all_organization_units   haou,
+    hr_all_organization_units   hou,
+    bank,
+    pay_payroll_assignments     ppa,
+    pay_pay_relationships_dn    pprd,
+    pay_pay_relationships_f     prf,
+    pay_payroll_terms           ppt,
+    pay_assigned_payrolls_dn    aapd,
+    pay_all_payrolls_f          aapf,
+    pay_time_periods            ptp,
+    mohre,
+    npay
+WHERE
+    1 = 1
+-- AND papf.person_number = '100047'
+    AND papf.person_id = ppnf.person_id
+    AND ppnf.name_type = 'GLOBAL'
+    AND papf.person_id = paam.person_id
+    AND paam.primary_flag = 'Y'
+    AND paam.effective_latest_change = 'Y'
+    AND paam.system_person_type = 'EMP'
+    AND paam.assignment_status_type = 'ACTIVE'
+    AND paam.legal_entity_id = hle.organization_id
+    AND hle.status = 'A'
+    AND hle.classification_code = 'HCM_LEMP'
+    AND hle.organization_id = haou.organization_id
+    AND paam.organization_id = hou.organization_id
+    AND papf.person_id = bank.person_id
+    AND paam.assignment_id = ppa.hr_assignment_id (+)
+    AND paam.work_terms_assignment_id = ppa.hr_term_id (+)
+    AND ppa.payroll_relationship_id = pprd.payroll_relationship_id (+)
+    AND pprd.payroll_relationship_id = prf.payroll_relationship_id (+)
+    AND pprd.payroll_relationship_id = ppt.payroll_relationship_id (+)
+    AND ppt.payroll_term_id = aapd.payroll_term_id (+)
+    AND aapd.payroll_id = aapf.payroll_id (+)
+    AND aapf.payroll_id = ptp.payroll_id
+    AND ptp.cut_off_date IS NOT NULL
+    AND pprd.payroll_stat_unit_id = mohre.organization_id (+)
+    AND papf.person_id = npay.person_id
+    AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+    AND trunc(SYSDATE) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+    AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+    AND trunc(SYSDATE) BETWEEN hle.effective_start_date AND hle.effective_end_date
+    AND trunc(SYSDATE) BETWEEN ppa.start_date (+) AND ppa.end_date (+)
+    AND trunc(SYSDATE) BETWEEN pprd.start_date (+) AND pprd.end_date (+)
+    AND trunc(SYSDATE) BETWEEN ppt.start_date (+) AND ppt.end_date (+)
+    AND trunc(SYSDATE) BETWEEN aapd.start_date (+) AND aapd.end_date (+)
+    AND trunc(SYSDATE) BETWEEN aapf.effective_start_date (+) AND aapf.effective_end_date (+)
+    AND hle.name = nvl(:p_legal_emp, hle.name)
+    AND haou.name = nvl(:p_bu, haou.name)
+    AND hou.name = nvl(:p_dep_name, hou.name)
+--AND ptp.period_name = :P_Period_name
+    AND ptp.time_period_id = :p_period_name
+    AND aapf.payroll_id = :p_payroll_name
+GROUP BY
+    papf.person_number,
+    ppnf.display_name,
+    hle.name,
+    haou.name,
+    hou.name,
+    bank.branch_number,
+    bank.clear_iban,
+    papf.person_id,
+    paam.assignment_id,
+    bank.bank_account_number,
+    bank.bank_number,
+    bank.bank_name,
+    bank.bank_branch_name,
+    pprd.person_id,
+    prf.rel_information3,
+    aapf.reporting_name,
+    aapf.payroll_id,
+    ptp.period_name,
+    ptp.start_date,
+    ptp.end_date,
+    ptp.cut_off_date,
+    mohre.org_information1
