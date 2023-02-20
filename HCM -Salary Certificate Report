@@ -1,0 +1,251 @@
+============ DS 1 (DocumentDetails) ================
+SELECT
+    txnheader.transaction_id AS "transactionId",
+    extractvalue(value(documentdetails), '//PersonId/DATA') AS "PersonId",
+    extractvalue(value(documentdetails), '//DocumentsOfRecordId/DATA') AS "DocumentsOfRecordId",
+    extractvalue(value(documentdetails), '//DocumentName/DATA') AS "DocumentName",
+    extractvalue(value(documentdetails), '//DocumentNumber/DATA') AS "DocumentNumber",
+    extractvalue(value(documentdetails), '//DocumentCode/DATA') AS "DocumentCode",
+    TO_CHAR(TO_DATE(extractvalue(value(documentdetails), '//DateFrom/DATA'), 'YYYY-MM-DD'), 'DD.MM.YYYY') AS "DateFrom",
+    TO_CHAR(TO_DATE(extractvalue(value(documentdetails), '//DateTo/DATA'), 'YYYY-MM-DD'), 'DD.MM.YYYY') AS "DateTo",
+    extractvalue(value(documentdetails), '//IssuingCountry/DATA') AS "IssuingCountry",
+    extractvalue(value(documentdetails), '//IssuingLocation/DATA') AS "IssuingLocation",
+    TO_DATE(extractvalue(value(documentdetails), '//IssuedDate/DATA'), 'YYYY-MM-DD') AS "IssuedOn",
+    extractvalue(value(documentdetails), '//IssuingAuthority/DATA') AS "IssuingAuthority",
+    extractvalue(value(documentdetails), '//Comments/DATA') AS "Comments"
+FROM
+    hrc_txn_header                                                                         txnheader,
+    hrc_txn_data                                                                           txndata,
+    hr_document_types_vl                                                                   doc_type,
+    fnd_lookup_values_vl                                                                   category_table,
+    TABLE ( per_bipntf_utility.extractxmlsequenceforeo(:ptransid, 'DocumentsOfRecordEO', 0) )   documentdetails
+WHERE
+    :ptransid IS NOT NULL
+    AND txndata.transaction_id = :ptransid
+    AND doc_type.document_type_id = extractvalue(value(documentdetails), '//DocumentTypeId/DATA')
+    AND txnheader.object_id = extractvalue(value(documentdetails), '//DocumentsOfRecordId/DATA')
+    AND txnheader.object = 'HR_DOCUMENTS_OF_RECORD'
+    AND txnheader.transaction_id = txndata.transaction_id
+    AND lookup_code = doc_type.category_code
+    AND lookup_type = 'DOCUMENT_CATEGORY'
+    
+    =============== DS 2 (DocumentFlexFields) ===============
+    
+    SELECT
+    txnheader.transaction_id AS transaction_id,
+    TRIM(regexp_replace(extractvalue(value(documentdetails), '//DeiAttribute1/DATA'), '– |’|-', '')) AS lettertype,
+    upper(TRIM(regexp_replace(extractvalue(value(documentdetails), '//DeiAttribute1/DATA'), '– |’|-', ''))) AS lettertype1,
+    extractvalue(value(documentdetails), '//DeiAttribute10/DATA') AS hostname,
+    extractvalue(value(documentdetails), '//DeiAttribute11/DATA') AS hostaddress,
+    extractvalue(value(documentdetails), '//DeiAttribute12/DATA') AS hostcountrycontactno,
+    extractvalue(value(documentdetails), '//DeiAttribute13/DATA') AS hostemailaddress,
+    (
+        SELECT
+            territory_short_name
+        FROM
+            fnd_territories_vl
+        WHERE
+            territory_code = extractvalue(value(documentdetails), '//DeiAttribute14/DATA')
+    ) AS hostcountry,
+    (
+        SELECT
+            territory_short_name
+        FROM
+            fnd_territories_vl
+        WHERE
+            territory_code = extractvalue(value(documentdetails), '//DeiAttribute15/DATA')
+    ) AS homecountry,
+    extractvalue(value(documentdetails), '//DeiAttribute16/DATA') AS passportnumber,
+    (
+        SELECT
+            territory_short_name
+        FROM
+            fnd_territories_vl
+        WHERE
+            territory_code = extractvalue(value(documentdetails), '//DeiAttribute17/DATA')
+    ) AS passportcountry,
+    DECODE(extractvalue(value(documentdetails), '//DeiAttribute18/DATA'), 'SE', 'Single Entry', 'Multi Entry') AS visatype,
+    extractvalue(value(documentdetails), '//DeiAttribute19/DATA') AS istravelapproved,
+    extractvalue(value(documentdetails), '//DeiAttribute2/DATA') AS bankname,
+    extractvalue(value(documentdetails), '//DeiAttribute3/DATA') AS destination,
+    extractvalue(value(documentdetails), '//DeiAttribute4/DATA') AS visaembassy,
+    extractvalue(value(documentdetails), '//DeiAttribute5/DATA') AS pincode,
+    extractvalue(value(documentdetails), '//DeiAttribute6/DATA') AS state,
+    extractvalue(value(documentdetails), '//DeiAttribute7/DATA') AS country,
+    extractvalue(value(documentdetails), '//DeiAttribute8/DATA') AS includehomeaddress,
+    extractvalue(value(documentdetails), '//DeiAttribute9/DATA') AS includemonthlysalary,
+    TO_DATE(extractvalue(value(documentdetails), '//DeiAttributeDate1/DATA'), 'YYYY-MM-DD') AS tripstartdate,
+    TO_DATE(extractvalue(value(documentdetails), '//DeiAttributeDate2/DATA'), 'YYYY-MM-DD') AS tripenddate,
+    TO_DATE(extractvalue(value(documentdetails), '//DeiAttributeDate3/DATA'), 'YYYY-MM-DD') AS passportissuedate,
+    TO_DATE(extractvalue(value(documentdetails), '//DeiAttributeDate4/DATA'), 'YYYY-MM-DD') AS passportexpirydate,
+    extractvalue(value(documentdetails), '//DeiAttributeNumber1/DATA') AS numberofyears
+FROM
+    hrc_txn_header                                                                         txnheader,
+    hrc_txn_data                                                                           txndata,
+    TABLE ( per_bipntf_utility.extractxmlsequenceforeo(:ptransid, 'DocumentsOfRecordEO', 0) )   documentdetails
+WHERE
+    :ptransid IS NOT NULL
+    AND txndata.transaction_id = :ptransid
+    AND txnheader.object_id = extractvalue(value(documentdetails), '//DocumentsOfRecordId/DATA')
+    AND txnheader.object = 'HR_DOCUMENTS_OF_RECORD'
+    AND txnheader.transaction_id = txndata.transaction_id
+    
+    =============== DS 3 (DocumentPersonDetails) ============
+    
+    SELECT
+    papf.person_id            person_id,
+    papf.person_number        employee_number,
+    TO_CHAR(papf.start_date, 'DD.MM.YYYY') hire_date,
+    TO_CHAR(SYSDATE, 'YYYY') year,
+    haouf.organization_code   le_sn,
+    haouf.name                le_nm,
+    ppnf.display_name         employee_name,
+    (
+        SELECT
+            MAX(fl.meaning)
+        FROM
+            fnd_lookup_values_tl fl
+        WHERE
+            fl.lookup_type = 'NATIONALITY'
+            AND fl.lookup_code (+) = pcz.legislation_code
+            AND fl.language = userenv('LANG')
+    ) nationality,
+    hap.name                  designation,
+    pps.passport_number       passport_number,
+    TRIM(TO_CHAR(sal.salary_amount, '99,999.99')) total_salary,
+    pis.image                 image,
+    TO_CHAR(SYSDATE, 'ddth')
+    || ' '
+    || TO_CHAR(SYSDATE, 'Mon YYYY', 'NLS_DATE_LANGUAGE=American') currentdate,
+    hla.location_name         branch_name,
+    approval.approver_number,
+    approval.legal_entity,
+    iban.clear_iban,
+    approval.approver_name,
+    approval.document_id,
+    approval.ucmfile,
+--'UCMFA00477626' as UCMFILE,
+    approval.approver_company,
+    approval.approver_designation,
+    approval.approver_signatory
+FROM
+    per_all_people_f                papf,
+    per_all_assignments_m           paam,
+    hr_org_unit_classifications_f   houcf,
+    hr_all_organization_units_vl    haouf,
+    per_person_names_f              ppnf,
+    per_citizenships                pcz,
+    hr_all_positions                hap,
+    per_passports                   pps,
+    cmp_salary                      sal,
+    per_images                      pis,
+    hr_locations_all                hla,
+    (
+        SELECT
+            papf.person_number          approver_number,
+            fur.row_low_range_or_name   legal_entity,
+            ppnf.display_name           approver_name,
+            fdt.dm_version_number       document_id,
+            fdt.dm_document_id          ucmfile,
+            hpb.dei_attribute31         approver_signatory,
+            haouf.name                  approver_company,
+            hap.name                    approver_designation
+        FROM
+            ff_user_tables                  fut,
+            ff_user_columns                 fuc,
+            ff_user_columns_tl              fuct,
+            ff_user_rows_f                  fur,
+            ff_user_column_instances_f      fuci,
+            per_all_people_f                papf,
+            per_all_assignments_m           paam,
+            per_person_names_f              ppnf,
+            hr_all_positions                hap,
+            hr_documents_of_record          hpb,
+            hr_document_types_tl            hdtl,
+            fnd_attached_documents          fad,
+            fnd_documents_tl                fdt,
+            hr_org_unit_classifications_f   houcf,
+            hr_all_organization_units_vl    haouf
+        WHERE
+            fut.user_table_id = fuc.user_table_id
+            AND fuc.user_column_id = fuct.user_column_id
+            AND fut.user_table_id = fur.user_table_id
+            AND fuc.user_column_id = fuci.user_column_id
+            AND fur.user_row_id = fuci.user_row_id
+            AND fut.base_user_table_name = 'ALS_SIGNATORIES'
+            AND fuci.value = papf.person_number
+            AND papf.person_id = paam.person_id
+            AND hpb.person_id = papf.person_id
+            AND papf.person_id = ppnf.person_id
+            AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+            AND paam.assignment_status_type = 'ACTIVE'
+            AND paam.effective_latest_change = 'Y'
+            AND paam.primary_flag = 'Y'
+            AND hap.position_id (+) = paam.position_id
+            AND haouf.organization_id = paam.legal_entity_id
+            AND haouf.organization_id = houcf.organization_id
+            AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+            AND houcf.classification_code = 'HCM_LEMP'
+            AND hpb.document_type_id = hdtl.document_type_id
+            AND hdtl.document_type = 'Digital signatory Masters'
+            AND hpb.documents_of_record_id = fad.pk1_value
+            AND fad.document_id = fdt.document_id
+            AND fdt.language = 'US'
+            AND fad.entity_name = 'HR_DOCUMENTS_OF_RECORD'
+            AND ppnf.name_type = 'GLOBAL'
+            AND trunc(SYSDATE) BETWEEN papf.effective_start_date AND papf.effective_end_date
+    ) approval,
+    (
+        SELECT
+            papf.person_id,
+            iebc.clear_iban
+        FROM
+            hz_parties                       hz,
+            per_all_people_f                 papf,
+            iby_ext_bank_accounts_v          iebc,
+            per_all_assignments_f            paaf,
+            pay_pay_relationships_dn         pprd,
+            pay_payroll_assignments          ppasg,
+            pay_personal_payment_methods_f   pppm,
+            pay_org_pay_methods_vl           popm
+        WHERE
+            hz.orig_system_reference = papf.person_id
+            AND hz.party_id = iebc.primary_acct_owner_party_id
+            AND papf.person_id = pprd.person_id
+            AND paaf.assignment_id = ppasg.hr_assignment_id
+            AND paaf.person_id = papf.person_id
+            AND paaf.assignment_status_type = 'ACTIVE'
+            AND paaf.effective_latest_change = 'Y'
+            AND paaf.primary_flag = 'Y'
+            AND trunc(SYSDATE) BETWEEN paaf.effective_start_date AND paaf.effective_end_date
+            AND iebc.bank_account_id = pppm.bank_account_id
+            AND pprd.payroll_relationship_id = pppm.payroll_relationship_id
+            AND pppm.payroll_relationship_id = ppasg.payroll_relationship_id
+            AND popm.org_payment_method_id = pppm.org_payment_method_id
+            AND trunc(SYSDATE) BETWEEN pppm.effective_start_date (+) AND pppm.effective_end_date (+)
+            AND trunc(SYSDATE) BETWEEN popm.effective_start_date (+) AND popm.effective_end_date (+)
+    ) iban
+WHERE
+    papf.person_id = paam.person_id
+    AND trunc(SYSDATE) BETWEEN paam.effective_start_date AND paam.effective_end_date
+    AND paam.assignment_status_type = 'ACTIVE'
+    AND paam.effective_latest_change = 'Y'
+    AND paam.primary_flag = 'Y'
+    AND haouf.organization_id = paam.legal_entity_id
+    AND haouf.organization_id = houcf.organization_id
+    AND haouf.effective_start_date BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+    AND houcf.classification_code = 'HCM_LEMP'
+    AND papf.person_id = ppnf.person_id
+    AND ppnf.name_type = 'GLOBAL'
+    AND pcz.person_id (+) = papf.person_id
+    AND trunc(SYSDATE) BETWEEN nvl(pcz.date_from(+), trunc(SYSDATE)) AND nvl(pcz.date_to(+), trunc(SYSDATE))
+    AND hap.position_id (+) = paam.position_id
+    AND pps.person_id (+) = papf.person_id
+    AND sal.assignment_id (+) = paam.assignment_id
+    AND trunc(SYSDATE) BETWEEN nvl(sal.date_from(+), SYSDATE) AND nvl(sal.date_to(+), SYSDATE)
+    AND pis.person_id (+) = papf.person_id
+    AND pis.primary_flag (+) = 'Y'
+    AND hla.location_id (+) = paam.location_id
+    AND upper(haouf.name) = approval.legal_entity
+    AND iban.person_id (+) = papf.person_id
+--AND PAPF.PERSON_NUMBER = '100201'
